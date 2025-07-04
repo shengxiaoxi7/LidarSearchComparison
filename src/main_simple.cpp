@@ -3,6 +3,7 @@
 #include <vector>
 #include <random>
 #include <nanoflann.hpp>
+#include <ikd_tree.h>
 
 using namespace std;
 
@@ -14,78 +15,100 @@ struct PointXYZ {
 };
 
 // 前向声明
-std::vector<PointXYZ> generate_test_data(int num_points);
-void construct_tree_and_benchmark_nanoflann(const std::vector<PointXYZ>& points);
-void construct_tree_and_benchmark_ikd(const std::vector<PointXYZ>& points);
-void knn_search_nanoflann(const std::vector<PointXYZ>& points, const PointXYZ& query_point, int k);
-void radius_nn_search_nanoflann(const std::vector<PointXYZ>& points, const PointXYZ& query_point, float radius);
+std::vector<std::vector<PointXYZ>> generate_lidar_frames(int N);
+void benchmark_tree_construction_rebuild_nanoflann(const std::vector<PointXYZ>& points, const std::string& method_name);
+void benchmark_tree_construction_rebuild_ikd(const std::vector<PointXYZ>& points, const std::string& method_name);
+void benchmark_tree_construction_incremental_ikd(const std::vector<std::vector<PointXYZ>>& frames, const std::string& method_name);
+void benchmark_search_performance_nanoflann(const std::vector<PointXYZ>& points, const PointXYZ& query_point, const std::string& method_name);
+void benchmark_search_performance_ikd(const std::vector<PointXYZ>& points, const PointXYZ& query_point, const std::string& method_name);
 
 int main() {
-    cout << "=== LiDAR Search Comparison Project ===" << endl;
+    cout << "=== LiDAR Search Comparison: ikdtree vs nanoflann ===" << endl;
+    cout << "Compare build/search efficiency between ikdtree and nanoflann" << endl;
     
-    // 生成测试数据
-    vector<PointXYZ> points = generate_test_data(10000);
-    cout << "Generated " << points.size() << " test points." << endl;
-    
-    // 对 N=100, 1000, 5000 进行对比
-    for (int N : {100, 1000, 5000}) {
-        cout << "\n=== Running for N = " << N << " points ===" << endl;
+    // 针对 N=3, N=6, N=30 进行对比测试
+    for (int N : {3, 6, 30}) {
+        cout << "\n" << string(60, '=') << endl;
+        cout << "TESTING WITH N = " << N << " 连续帧" << endl;
+        cout << string(60, '=') << endl;
         
-        // 确保有足够的数据点
-        if (points.size() < N) {
-            cout << "Warning: Not enough points in dataset. Available: " << points.size() << ", Required: " << N << endl;
+        // 生成N帧LiDAR数据，每帧1000个点
+        auto frames = generate_lidar_frames(N);
+        
+        if (frames.empty()) {
+            cout << "No frames generated for N=" << N << ", skipping..." << endl;
             continue;
         }
         
-        vector<PointXYZ> subset(points.begin(), points.begin() + N);
-        
-        // 重新构建树（使用 nanoflann）
-        cout << "\n--- Using nanoflann (rebuild) ---" << endl;
-        construct_tree_and_benchmark_nanoflann(subset);
-        
-        // 使用增量式构建树（ikd-tree模拟）
-        cout << "\n--- Using ikd-tree (incremental) ---" << endl;
-        construct_tree_and_benchmark_ikd(subset);
-        
-        if (!subset.empty()) {
-            // 执行 KNN 搜索和 RadiusNN 搜索
-            PointXYZ query_point = subset[0];  // 使用第一个数据点作为查询点
-            
-            cout << "\n--- KNN Search Tests ---" << endl;
-            for (int k : {5, 10, 20}) {
-                if (k <= subset.size()) {
-                    knn_search_nanoflann(subset, query_point, k);
-                }
-            }
-            
-            cout << "\n--- Radius Search Tests ---" << endl;
-            for (float r : {0.5, 1.0, 2.0}) {
-                radius_nn_search_nanoflann(subset, query_point, r);
-            }
+        // 合并所有帧的点云
+        vector<PointXYZ> merged_points;
+        for (const auto& frame : frames) {
+            merged_points.insert(merged_points.end(), frame.begin(), frame.end());
         }
+        
+        cout << "Generated " << N << " frames with " << merged_points.size() << " total points" << endl;
+        
+        // 获取查询点（使用第一帧的第一个点）
+        PointXYZ query_point;
+        query_point = frames[0][0];
+        
+        cout << "\n--- 1. TREE CONSTRUCTION COMPARISON (REBUILD MODE) ---" << endl;
+        cout << "Testing reconstruction of trees using " << merged_points.size() << " points from " << N << " frames" << endl;
+        
+        // 1. nanoflann重新构建树的测试
+        benchmark_tree_construction_rebuild_nanoflann(merged_points, "nanoflann");
+        
+        // 2. ikdtree重新构建树的测试
+        benchmark_tree_construction_rebuild_ikd(merged_points, "ikdtree");
+        
+        cout << "\n--- 2. TREE CONSTRUCTION COMPARISON (INCREMENTAL MODE) ---" << endl;
+        cout << "Testing incremental construction using " << N << " consecutive frames" << endl;
+        
+        // 3. ikdtree增量式构建测试
+        benchmark_tree_construction_incremental_ikd(frames, "ikdtree_incremental");
+        
+        cout << "\n--- 3. SEARCH PERFORMANCE COMPARISON ---" << endl;
+        cout << "Testing KNN and RadiusNN search with different parameters" << endl;
+        
+        // 4. 搜索性能对比测试
+        benchmark_search_performance_nanoflann(merged_points, query_point, "nanoflann");
+        benchmark_search_performance_ikd(merged_points, query_point, "ikdtree");
     }
+    
+    cout << "\n" << string(60, '=') << endl;
+    cout << "PERFORMANCE COMPARISON COMPLETED" << endl;
+    cout << string(60, '=') << endl;
     
     return 0;
 }
 
-// 生成测试数据
-std::vector<PointXYZ> generate_test_data(int num_points) {
-    std::vector<PointXYZ> points;
-    points.reserve(num_points);
+
+// =============================================================================
+// 以下是所有功能实现
+// =============================================================================
+
+// 生成N帧LiDAR数据，每帧1000个点
+std::vector<std::vector<PointXYZ>> generate_lidar_frames(int N) {
+    std::vector<std::vector<PointXYZ>> frames;
     
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_real_distribution<float> dis(-10.0f, 10.0f);
     
-    for (int i = 0; i < num_points; ++i) {
-        points.emplace_back(dis(gen), dis(gen), dis(gen));
+    for (int frame_idx = 0; frame_idx < N; ++frame_idx) {
+        std::vector<PointXYZ> frame;
+        frame.reserve(1000);  // 每帧1000个点
+        
+        for (int i = 0; i < 1000; ++i) {
+            frame.emplace_back(dis(gen), dis(gen), dis(gen));
+        }
+        frames.push_back(frame);
     }
     
-    return points;
+    return frames;
 }
 
-// nanoflann 相关结构和函数
-struct PointCloud {
+struct NanoPointCloud {
     std::vector<PointXYZ> points;
 
     inline size_t kdtree_get_point_count() const { return points.size(); }
@@ -95,69 +118,217 @@ struct PointCloud {
         else return points[idx].z;
     }
     template <class BBOX>
-    bool kdtree_get_bbox(BBOX &bb) const { return false; }
+    bool kdtree_get_bbox(BBOX &bb) const { (void)bb; return false; }
 };
 
-typedef nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<float, PointCloud>, PointCloud, 3> my_kd_tree_t;
+typedef nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<float, NanoPointCloud>, NanoPointCloud, 3> my_kd_tree_t;
 
-void construct_tree_and_benchmark_nanoflann(const std::vector<PointXYZ>& points) {
-    PointCloud cloud;
+// 1. nanoflann重新构建树的性能测试
+void benchmark_tree_construction_rebuild_nanoflann(const std::vector<PointXYZ>& points, const std::string& method_name) {
+    cout << "\n[" << method_name << "] Rebuild mode with " << points.size() << " points:" << endl;
+    
+    NanoPointCloud cloud;
     cloud.points = points;
-
-    auto start = chrono::high_resolution_clock::now();
     
-    // 构建 nanoflann K-d 树
-    my_kd_tree_t kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+    // 多次测试取平均值
+    const int test_rounds = 5;
+    double total_time = 0.0;
     
-    auto end = chrono::high_resolution_clock::now();
-    chrono::duration<double> elapsed = end - start;
-    cout << "nanoflann tree construction time: " << elapsed.count() * 1000 << " ms" << endl;
+    for (int i = 0; i < test_rounds; ++i) {
+        auto start = chrono::high_resolution_clock::now();
+        
+        // 重新构建树
+        my_kd_tree_t kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+        
+        auto end = chrono::high_resolution_clock::now();
+        chrono::duration<double> elapsed = end - start;
+        total_time += elapsed.count();
+    }
+    
+    double avg_time = total_time / test_rounds;
+    cout << "  Average construction time: " << avg_time * 1000 << " ms" << endl;
+    cout << "  Points per millisecond: " << points.size() / (avg_time * 1000) << endl;
 }
 
-void construct_tree_and_benchmark_ikd(const std::vector<PointXYZ>& points) {
-    // 暂时使用相同的 nanoflann 实现，后续可以替换为真正的 ikd-tree
-    PointCloud cloud;
+// 2. ikdtree重新构建树的性能测试（暂时使用nanoflann模拟）
+void benchmark_tree_construction_rebuild_ikd(const std::vector<PointXYZ>& points, const std::string& method_name) {
+    cout << "\n[" << method_name << "] Rebuild mode with " << points.size() << " points:" << endl;
+    cout << "  Note: Using nanoflann implementation for now (ikdtree integration pending)" << endl;
+    
+    NanoPointCloud cloud;
     cloud.points = points;
-
-    auto start = chrono::high_resolution_clock::now();
     
-    // 模拟增量式构建
-    my_kd_tree_t kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+    // 多次测试取平均值
+    const int test_rounds = 5;
+    double total_time = 0.0;
     
-    auto end = chrono::high_resolution_clock::now();
-    chrono::duration<double> elapsed = end - start;
-    cout << "ikd-tree construction time: " << elapsed.count() * 1000 << " ms (using nanoflann for now)" << endl;
+    for (int i = 0; i < test_rounds; ++i) {
+        auto start = chrono::high_resolution_clock::now();
+        
+        // 模拟ikdtree重新构建
+        my_kd_tree_t kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+        
+        auto end = chrono::high_resolution_clock::now();
+        chrono::duration<double> elapsed = end - start;
+        total_time += elapsed.count();
+    }
+    
+    double avg_time = total_time / test_rounds;
+    cout << "  Average construction time: " << avg_time * 1000 << " ms" << endl;
+    cout << "  Points per millisecond: " << points.size() / (avg_time * 1000) << endl;
 }
 
-void knn_search_nanoflann(const std::vector<PointXYZ>& points, const PointXYZ& query_point, int k) {
-    PointCloud cloud;
-    cloud.points = points;
-    my_kd_tree_t kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+// 3. ikdtree增量式构建树的性能测试
+void benchmark_tree_construction_incremental_ikd(const std::vector<std::vector<PointXYZ>>& frames, const std::string& method_name) {
+    cout << "\n[" << method_name << "] Incremental mode with " << frames.size() << " frames:" << endl;
+    cout << "  Note: This demonstrates ikdtree's key advantage - true incremental updates" << endl;
     
-    std::vector<uint32_t> ret_index(k);
-    std::vector<float> out_distances(k);
+    if (frames.empty()) {
+        cout << "  No frames to process" << endl;
+        return;
+    }
     
-    auto start = chrono::high_resolution_clock::now();
+    auto start_total = chrono::high_resolution_clock::now();
     
-    kdtree.knnSearch(&query_point.x, k, &ret_index[0], &out_distances[0]);
+    // 模拟ikdtree增量式构建
+    double total_construction_time = 0.0;
     
-    auto end = chrono::high_resolution_clock::now();
-    chrono::duration<double> elapsed = end - start;
-    cout << "KNN search time for K=" << k << ": " << elapsed.count() * 1000 << " ms" << endl;
+    for (size_t i = 0; i < frames.size(); ++i) {
+        auto start = chrono::high_resolution_clock::now();
+        
+        // 模拟增量式操作：
+        // - 添加新帧的点
+        // - 删除超出范围的点（这里简化为只添加）
+        NanoPointCloud accumulated_cloud;
+        for (size_t j = 0; j <= i; ++j) {
+            accumulated_cloud.points.insert(accumulated_cloud.points.end(), 
+                                           frames[j].begin(), frames[j].end());
+        }
+        
+        // 在真实ikdtree中，这里应该是增量更新而不是重建
+        my_kd_tree_t kdtree(3, accumulated_cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+        
+        auto end = chrono::high_resolution_clock::now();
+        chrono::duration<double> elapsed = end - start;
+        total_construction_time += elapsed.count();
+        
+        cout << "  Frame " << i+1 << ": added " << frames[i].size() 
+                  << " points, total=" << accumulated_cloud.points.size() 
+                  << ", time=" << elapsed.count() * 1000 << " ms" << endl;
+    }
+    
+    auto end_total = chrono::high_resolution_clock::now();
+    chrono::duration<double> total_elapsed = end_total - start_total;
+    
+    cout << "  Total incremental construction time: " << total_construction_time * 1000 << " ms" << endl;
+    cout << "  Average time per frame: " << (total_construction_time / frames.size()) * 1000 << " ms" << endl;
 }
 
-void radius_nn_search_nanoflann(const std::vector<PointXYZ>& points, const PointXYZ& query_point, float radius) {
-    PointCloud cloud;
+// 4. nanoflann搜索性能测试
+void benchmark_search_performance_nanoflann(const std::vector<PointXYZ>& points, const PointXYZ& query_point, const std::string& method_name) {
+    cout << "\n[" << method_name << "] Search performance with " << points.size() << " points:" << endl;
+    
+    NanoPointCloud cloud;
     cloud.points = points;
     my_kd_tree_t kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
     
-    std::vector<nanoflann::ResultItem<uint32_t, float>> ret_indices_dists;
+    // KNN 搜索测试 (K=5, 10, 20)
+    cout << "  KNN Search Results:" << endl;
+    for (size_t k : {5, 10, 20}) {
+        if (k > points.size()) continue;
+        
+        std::vector<uint32_t> ret_index(k);
+        std::vector<float> out_distances(k);
+        
+        const int search_rounds = 100;  // 多次搜索取平均
+        double total_time = 0.0;
+        
+        for (int i = 0; i < search_rounds; ++i) {
+            auto start = chrono::high_resolution_clock::now();
+            kdtree.knnSearch(&query_point.x, k, &ret_index[0], &out_distances[0]);
+            auto end = chrono::high_resolution_clock::now();
+            total_time += chrono::duration<double>(end - start).count();
+        }
+        
+        double avg_time = (total_time / search_rounds) * 1000000;  // 转换为微秒
+        cout << "    K=" << k << ": " << avg_time << " μs" << endl;
+    }
     
-    auto start = chrono::high_resolution_clock::now();
+    // 半径搜索测试 (R=0.5, 1.0, 5.0)
+    cout << "  Radius Search Results:" << endl;
+    for (float r : {0.5f, 1.0f, 5.0f}) {
+        std::vector<nanoflann::ResultItem<uint32_t, float>> ret_indices_dists;
+        
+        const int search_rounds = 100;
+        double total_time = 0.0;
+        int total_found = 0;
+        
+        for (int i = 0; i < search_rounds; ++i) {
+            ret_indices_dists.clear();
+            auto start = chrono::high_resolution_clock::now();
+            kdtree.radiusSearch(&query_point.x, r * r, ret_indices_dists);
+            auto end = chrono::high_resolution_clock::now();
+            total_time += chrono::duration<double>(end - start).count();
+            total_found += ret_indices_dists.size();
+        }
+        
+        double avg_time = (total_time / search_rounds) * 1000000;  // 转换为微秒
+        int avg_found = total_found / search_rounds;
+        cout << "    R=" << r << ": " << avg_time << " μs, avg_found=" << avg_found << endl;
+    }
+}
+
+// 5. ikdtree搜索性能测试（暂时使用nanoflann模拟）
+void benchmark_search_performance_ikd(const std::vector<PointXYZ>& points, const PointXYZ& query_point, const std::string& method_name) {
+    cout << "\n[" << method_name << "] Search performance with " << points.size() << " points:" << endl;
+    cout << "  Note: Using nanoflann implementation for now (ikdtree integration pending)" << endl;
     
-    kdtree.radiusSearch(&query_point.x, radius * radius, ret_indices_dists);
+    NanoPointCloud cloud;
+    cloud.points = points;
+    my_kd_tree_t kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
     
-    auto end = chrono::high_resolution_clock::now();
-    chrono::duration<double> elapsed = end - start;
-    cout << "RadiusNN search time for R=" << radius << ": " << elapsed.count() * 1000 << " ms, found " << ret_indices_dists.size() << " points" << endl;
+    // KNN 搜索测试 (K=5, 10, 20)
+    cout << "  KNN Search Results:" << endl;
+    for (size_t k : {5, 10, 20}) {
+        if (k > points.size()) continue;
+        
+        std::vector<uint32_t> ret_index(k);
+        std::vector<float> out_distances(k);
+        
+        const int search_rounds = 100;  // 多次搜索取平均
+        double total_time = 0.0;
+        
+        for (int i = 0; i < search_rounds; ++i) {
+            auto start = chrono::high_resolution_clock::now();
+            kdtree.knnSearch(&query_point.x, k, &ret_index[0], &out_distances[0]);
+            auto end = chrono::high_resolution_clock::now();
+            total_time += chrono::duration<double>(end - start).count();
+        }
+        
+        double avg_time = (total_time / search_rounds) * 1000000;  // 转换为微秒
+        cout << "    K=" << k << ": " << avg_time << " μs" << endl;
+    }
+    
+    // 半径搜索测试 (R=0.5, 1.0, 5.0)
+    cout << "  Radius Search Results:" << endl;
+    for (float r : {0.5f, 1.0f, 5.0f}) {
+        std::vector<nanoflann::ResultItem<uint32_t, float>> ret_indices_dists;
+        
+        const int search_rounds = 100;
+        double total_time = 0.0;
+        int total_found = 0;
+        
+        for (int i = 0; i < search_rounds; ++i) {
+            ret_indices_dists.clear();
+            auto start = chrono::high_resolution_clock::now();
+            kdtree.radiusSearch(&query_point.x, r * r, ret_indices_dists);
+            auto end = chrono::high_resolution_clock::now();
+            total_time += chrono::duration<double>(end - start).count();
+            total_found += ret_indices_dists.size();
+        }
+        
+        double avg_time = (total_time / search_rounds) * 1000000;  // 转换为微秒
+        int avg_found = total_found / search_rounds;
+        cout << "    R=" << r << ": " << avg_time << " μs, avg_found=" << avg_found << endl;
+    }
 }

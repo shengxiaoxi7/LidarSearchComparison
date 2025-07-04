@@ -13,15 +13,11 @@ add_compile_options(-Wall -Wextra -O3)
 # 添加头文件路径
 include_directories(
   ${PROJECT_SOURCE_DIR}/libs/nanoflann   # nanoflann 库头文件路径
-  ${PROJECT_SOURCE_DIR}/libs/ikd-tree    # ikd-tree 库头文件路径
+  ${PROJECT_SOURCE_DIR}/libs/ikdtree    # ikdtree 库头文件路径
 )
 
 # 简化版本（不依赖ROS和PCL）
-add_executable(LidarSearchComparison_simple
-  src/main_simple.cpp
-)
-
-# 链接 pthread
+add_executable(LidarSearchComparison_simple src/main_simple.cpp libs/ikdtree/ikd_tree.cpp)
 target_link_libraries(LidarSearchComparison_simple pthread)
 
 # 如果有ROS环境，编译完整版本
@@ -47,7 +43,7 @@ if(catkin_FOUND AND PCL_FOUND)
   # 完整版本（依赖ROS和PCL）
   add_executable(LidarSearchComparison
     src/main.cpp
-    libs/ikd-tree/ikd_tree.cpp  # 添加ikd-tree源文件
+    libs/ikdtree/ikd_tree.cpp  # 添加ikdtree源文件
   )
   
   # 添加定义

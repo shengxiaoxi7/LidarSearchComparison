@@ -12,7 +12,7 @@
 #include <boost/foreach.hpp>
 #include <nanoflann.hpp>
 #include <Eigen/Dense>
-#include "../libs/ikd-tree/ikd_tree.h"
+#include "../libs/ikdtree/ikd_tree.h"
 
 using namespace std;
 using namespace pcl;
@@ -34,8 +34,8 @@ void benchmark_search_performance_nanoflann(const std::vector<pcl::PointXYZ>& po
 void benchmark_search_performance_ikdtree(const std::vector<pcl::PointXYZ>& points, const pcl::PointXYZ& query_point, const std::string& method_name);
 
 int main() {
-    std::cout << "=== LiDAR Search Comparison: ikd-tree vs nanoflann ===" << std::endl;
-    std::cout << "Core Objective: Compare build/search efficiency between ikd-tree and nanoflann" << std::endl;
+    std::cout << "=== LiDAR Search Comparison: ikdtree vs nanoflann ===" << std::endl;
+    std::cout << "Core Objective: Compare build/search efficiency between ikdtree and nanoflann" << std::endl;
     
     // 针对 N=3, N=6, N=30 进行对比测试
     for (int N : {3, 6, 30}) {
@@ -66,23 +66,20 @@ int main() {
         // 1. nanoflann重新构建树的测试
         benchmark_tree_construction_rebuild_nanoflann(test_data.merged_points, "nanoflann");
         
-        // 2. ikd-tree重新构建树的测试 (暂时跳过，有崩溃问题)
-        std::cout << "\n[ikd-tree] Rebuild mode: SKIPPED (debugging segmentation fault)" << std::endl;
+        // 2. ikdtree重新构建树的测试 (暂时跳过，有崩溃问题)
+        std::cout << "\n[ikdtree] Rebuild mode: SKIPPED (debugging segmentation fault)" << std::endl;
         
         std::cout << "\n--- 2. TREE CONSTRUCTION COMPARISON (INCREMENTAL MODE) ---" << std::endl;
         std::cout << "Testing incremental construction using " << N << " consecutive frames" << std::endl;
         std::cout << "Note: nanoflann does not support true incremental updates - it requires full rebuilds" << std::endl;
-        std::cout << "Only ikd-tree supports efficient incremental updates, but ikd-tree is currently disabled due to segfault" << std::endl;
-        
-        // 演示nanoflann增量更新的代价（需要完全重建）
-        benchmark_tree_construction_incremental_nanoflann(test_data.consecutive_frames, "nanoflann_simulated_incremental");
-        
+        std::cout << "Only ikdtree supports efficient incremental updates, but ikdtree is currently disabled due to segfault" << std::endl;
+       
         std::cout << "\n--- 3. SEARCH PERFORMANCE COMPARISON ---" << std::endl;
         std::cout << "Testing KNN and RadiusNN search with different parameters" << std::endl;
         
         // 4. 搜索性能对比测试
         benchmark_search_performance_nanoflann(test_data.merged_points, query_point, "nanoflann");
-        std::cout << "\n[ikd-tree] Search performance: SKIPPED (debugging segmentation fault)" << std::endl;
+        std::cout << "\n[ikdtree] Search performance: SKIPPED (debugging segmentation fault)" << std::endl;
     }
     
     std::cout << "\n" << std::string(60, '=') << std::endl;
@@ -115,7 +112,7 @@ std::vector<std::vector<pcl::PointXYZ>> load_lidar_frames_from_rosbag(const std:
         int frame_count = 0;
         
         BOOST_FOREACH(rosbag::MessageInstance const m, view) {
-            if (m.getTopic() == "/cloud_registered" || m.getTopic() == "/livox/lidar") {
+            if (m.getTopic() == "/cloud_registered") {
                 sensor_msgs::PointCloud2::ConstPtr msg = m.instantiate<sensor_msgs::PointCloud2>();
                 if (msg != nullptr) {
                     try {
@@ -215,7 +212,7 @@ void benchmark_tree_construction_rebuild_nanoflann(const std::vector<pcl::PointX
 }
 
 
-// 2. ikd-tree重新构建树的性能测试
+// 2. ikdtree重新构建树的性能测试
 void benchmark_tree_construction_rebuild_ikdtree(const std::vector<pcl::PointXYZ>& points, const std::string& method_name) {
     std::cout << "\n[" << method_name << "] Rebuild mode with " << points.size() << " points:" << std::endl;
     
@@ -234,10 +231,10 @@ void benchmark_tree_construction_rebuild_ikdtree(const std::vector<pcl::PointXYZ
         try {
             auto start = chrono::high_resolution_clock::now();
             
-            // 创建ikd-tree并初始化
+            // 创建ikdtree并初始化
             KD_TREE<pcl::PointXYZ> ikd_tree(0.5, 0.6, 0.2);
             
-            // 转换为ikd-tree所需的vector类型
+            // 转换为ikdtree所需的vector类型
             vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> point_vector(points.begin(), points.end());
             
             std::cout << "    Building tree with " << point_vector.size() << " points" << std::endl;
@@ -262,7 +259,7 @@ void benchmark_tree_construction_rebuild_ikdtree(const std::vector<pcl::PointXYZ
     std::cout << "  Points per millisecond: " << points.size() / (avg_time * 1000) << std::endl;
 }
 
-// 3. ikd-tree增量式构建树的性能测试
+// 3. ikdtree增量式构建树的性能测试
 void benchmark_tree_construction_incremental_ikdtree(const std::vector<std::vector<pcl::PointXYZ>>& frames, const std::string& method_name) {
     std::cout << "\n[" << method_name << "] Incremental mode with " << frames.size() << " frames:" << std::endl;
     
@@ -274,7 +271,7 @@ void benchmark_tree_construction_incremental_ikdtree(const std::vector<std::vect
     try {
         auto start_total = chrono::high_resolution_clock::now();
         
-        // 使用ikd-tree进行真正的增量式构建
+        // 使用ikdtree进行真正的增量式构建
         KD_TREE<pcl::PointXYZ> ikd_tree(0.5, 0.6, 0.2);
         double total_construction_time = 0.0;
         
@@ -295,7 +292,7 @@ void benchmark_tree_construction_incremental_ikdtree(const std::vector<std::vect
         for (size_t i = 1; i < frames.size(); ++i) {
             auto start = chrono::high_resolution_clock::now();
             
-            // 使用ikd-tree的Add_Points功能增量添加
+            // 使用ikdtree的Add_Points功能增量添加
             vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> frame_points(frames[i].begin(), frames[i].end());
             ikd_tree.Add_Points(frame_points, false); // 不进行下采样
             
@@ -332,7 +329,7 @@ void benchmark_search_performance_nanoflann(const std::vector<pcl::PointXYZ>& po
     
     // KNN 搜索测试 (K=5, 10, 20)
     std::cout << "  KNN Search Results:" << std::endl;
-    for (int k : {5, 10, 20}) {
+    for (size_t k : {5, 10, 20}) {
         if (k > points.size()) continue;
         
         std::vector<uint32_t> ret_index(k);
@@ -376,12 +373,12 @@ void benchmark_search_performance_nanoflann(const std::vector<pcl::PointXYZ>& po
     }
 }
 
-// 5. ikd-tree搜索性能测试
+// 5. ikdtree搜索性能测试
 void benchmark_search_performance_ikdtree(const std::vector<pcl::PointXYZ>& points, const pcl::PointXYZ& query_point, const std::string& method_name) {
     std::cout << "\n[" << method_name << "] Search performance with " << points.size() << " points:" << std::endl;
     
     try {
-        // 构建ikd-tree
+        // 构建ikdtree
         KD_TREE<pcl::PointXYZ> ikd_tree(0.5, 0.6, 0.2);
         vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> point_vector(points.begin(), points.end());
         ikd_tree.Build(point_vector);
@@ -390,7 +387,7 @@ void benchmark_search_performance_ikdtree(const std::vector<pcl::PointXYZ>& poin
     
     // KNN 搜索测试 (K=5, 10, 20)
     std::cout << "  KNN Search Results:" << std::endl;
-    for (int k : {5, 10, 20}) {
+    for (size_t k : {5, 10, 20}) {
         if (k > points.size()) continue;
         
         const int search_rounds = 100;  // 多次搜索取平均

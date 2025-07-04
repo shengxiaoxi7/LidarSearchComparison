@@ -4,7 +4,7 @@
 
 这是一个用于比较不同 K-d 树实现在 LiDAR 点云数据搜索任务中性能表现的项目。主要对比：
 - **nanoflann**: 高性能的 C++ K-d 树库（重新构建模式）
-- **ikd-tree**: 支持增量构建的 K-d 树库（增量模式）
+- **ikdtree**: 支持增量构建的 K-d 树库（增量模式）
 
 ## 项目结构
 
@@ -21,7 +21,7 @@ LidarSearchComparison/
 │   └── search.cpp        # 搜索功能（原始版本）
 ├── libs/                 # 第三方库
 │   ├── nanoflann/        # nanoflann 库
-│   └── ikd-tree/         # ikd-tree 库
+│   └── ikdtree/         # ikdtree 库
 ├── data/                 # 数据文件
 │   └── 9.bag             # ROS bag 数据文件
 └── build/                # 构建目录
@@ -32,7 +32,7 @@ LidarSearchComparison/
 ### 已实现功能
 1. **树构建性能测试**
    - nanoflann 重新构建模式
-   - ikd-tree 增量构建模式（当前使用 nanoflann 模拟）
+   - ikdtree 增量构建模式（当前使用 nanoflann 模拟）
 
 2. **搜索性能测试**
    - KNN 搜索（K=5, 10, 20）
@@ -102,8 +102,8 @@ Generated 10000 test points.
 --- Using nanoflann (rebuild) ---
 nanoflann tree construction time: 0.00815 ms
 
---- Using ikd-tree (incremental) ---
-ikd-tree construction time: 0.00581 ms (using nanoflann for now)
+--- Using ikdtree (incremental) ---
+ikdtree construction time: 0.00581 ms (using nanoflann for now)
 
 --- KNN Search Tests ---
 KNN search time for K=5: 0.00089 ms

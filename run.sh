@@ -2,7 +2,7 @@
 
 # LiDAR Search Comparison 项目构建和运行脚本
 
-PROJECT_DIR="/home/syx/wfzf/code/ikd-tree_nanoflann/src/LidarSearchComparison"
+PROJECT_DIR="/home/syx/wfzf/code/ikdtree_nanoflann/src/LidarSearchComparison"
 BUILD_DIR="$PROJECT_DIR/build"
 
 echo "=== LiDAR Search Comparison Build & Run Script ==="
