@@ -1,12 +1,23 @@
-cmake_minimum_required(VERSION 3.10)  # 设置CMake的最小版本要求
+cmake_minimum_required(VERSION 3.10)
 
-project(LidarSearchComparison)  # 定义项目名称
+project(LidarSearchComparison)
 
-set(CMAKE_CXX_STANDARD 14)  # 设置C++标准为 C++14
+# 设置 C++ 标准
+set(CMAKE_CXX_STANDARD 14)
 
-# 设置头文件目录
-include_directories(include)
+# 包含头文件目录
+include_directories(
+    ${PROJECT_SOURCE_DIR}/libs/ikd-tree     # 添加 ikd-tree 头文件目录
+    ${PROJECT_SOURCE_DIR}/libs/nanoflann    # 添加 nanoflann 头文件目录
+    ${PROJECT_SOURCE_DIR}/include           # 添加项目的 include 目录（如果有的话）
+)
 
-# 设置源文件目录和目标程序
-add_executable(LidarSearchComparison src/main.cpp)
+# 添加源文件
+add_executable(LidarSearchComparison 
+    src/main.cpp
 
+    
+)
+
+# 如果 ikd-tree 有静态库或动态库文件（.a/.so），您可以使用以下命令链接库
+# target_link_libraries(LidarSearchComparison ikd-tree)
