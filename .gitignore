@@ -1,0 +1,17 @@
+# 编译输出
+/build/
+/data/
+
+# CMake文件
+CMakeCache.txt
+CMakeFiles/
+
+# 临时文件
+*.log
+*.bak
+*.swp
+
+# 操作系统生成的文件
+.DS_Store
+Thumbs.db
+
