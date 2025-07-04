@@ -1,23 +1,66 @@
 cmake_minimum_required(VERSION 3.10)
 
+# 项目名称
 project(LidarSearchComparison)
 
 # 设置 C++ 标准
 set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 包含头文件目录
+# 添加编译选项
+add_compile_options(-Wall -Wextra -O3)
+
+# 添加头文件路径
 include_directories(
-    ${PROJECT_SOURCE_DIR}/libs/ikd-tree     # 添加 ikd-tree 头文件目录
-    ${PROJECT_SOURCE_DIR}/libs/nanoflann    # 添加 nanoflann 头文件目录
-    ${PROJECT_SOURCE_DIR}/include           # 添加项目的 include 目录（如果有的话）
+  ${PROJECT_SOURCE_DIR}/libs/nanoflann   # nanoflann 库头文件路径
+  ${PROJECT_SOURCE_DIR}/libs/ikd-tree    # ikd-tree 库头文件路径
 )
 
-# 添加源文件
-add_executable(LidarSearchComparison 
+# 简化版本（不依赖ROS和PCL）
+add_executable(LidarSearchComparison_simple
+  src/main_simple.cpp
+)
+
+# 链接 pthread
+target_link_libraries(LidarSearchComparison_simple pthread)
+
+# 如果有ROS环境，编译完整版本
+find_package(catkin QUIET COMPONENTS
+  roscpp
+  sensor_msgs
+  pcl_ros
+  pcl_conversions
+  rosbag
+)
+
+find_package(PCL QUIET)
+
+if(catkin_FOUND AND PCL_FOUND)
+  message(STATUS "Found ROS and PCL, building full version")
+  
+  # 添加头文件路径
+  include_directories(
+    ${catkin_INCLUDE_DIRS}
+    ${PCL_INCLUDE_DIRS}
+  )
+  
+  # 完整版本（依赖ROS和PCL）
+  add_executable(LidarSearchComparison
     src/main.cpp
-
-    
-)
-
-# 如果 ikd-tree 有静态库或动态库文件（.a/.so），您可以使用以下命令链接库
-# target_link_libraries(LidarSearchComparison ikd-tree)
+    libs/ikd-tree/ikd_tree.cpp  # 添加ikd-tree源文件
+  )
+  
+  # 添加定义
+  target_compile_definitions(LidarSearchComparison PRIVATE
+    ${PCL_DEFINITIONS}
+  )
+  
+  # 链接依赖的库
+  target_link_libraries(LidarSearchComparison
+    ${catkin_LIBRARIES}   # ROS 库
+    ${PCL_LIBRARIES}      # PCL 库
+    pthread
+  )
+else()
+  message(STATUS "ROS or PCL not found, only building simple version")
+endif()
