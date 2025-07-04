@@ -45,7 +45,6 @@ make -j4
 - sensor_msgs
 - pcl_ros
 - pcl_conversions
-=
 
 ## 贡献说明
 
