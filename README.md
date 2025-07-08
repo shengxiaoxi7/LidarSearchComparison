@@ -1,4 +1,4 @@
-# LiDAR Search Comparison Project(**WIP**)
+# LiDAR Search Comparison Project
 
 ## 项目简介
 
