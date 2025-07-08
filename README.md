@@ -8,7 +8,7 @@
 
 ## 编译和运行
 
-### 方法一：使用运行脚本（推荐）
+### 方法一：使用运行脚本（推荐），需要修改其中的 PROJECT_DIR
 ```bash
 ./run.sh
 ```
@@ -24,11 +24,11 @@ cmake ..
 # 编译
 make -j4
 
-# 运行简化版本
-./LidarSearchComparison_simple
+# 运行简化版本（弃用）
+# ./LidarSearchComparison_simple
 
 # 运行完整版本（如果有 ROS/PCL 环境）
-./LidarSearchComparison
+./main
 ```
 
 ## 依赖要求

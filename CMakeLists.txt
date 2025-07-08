@@ -31,17 +31,6 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
 )
 
-# 编译 kdtree_comparison
-# add_executable(kdtree_comparison
-#   src/kdtree_comparison.cpp
-#   libs/ikdtree/ikd_tree.cpp   # 确保这里包含了 ikd_tree.cpp
-# )
-# target_link_libraries(kdtree_comparison
-#   ${PCL_LIBRARIES}     # 链接 PCL 库
-#   pthread              # 链接 pthread
-#   ${catkin_LIBRARIES}  # 链接 ROS 包
-# )
-
 # 编译 main
 add_executable(main
   src/main.cpp
@@ -54,10 +43,10 @@ target_link_libraries(main
 )
 
 # 编译简单版本
-add_executable(LidarSearchComparison_simple
-  src/main_simple.cpp
-  include/ikdtree/ikd_tree.cpp
-)
-target_link_libraries(LidarSearchComparison_simple
-  pthread              # 链接 pthread
-)
+# add_executable(LidarSearchComparison_simple
+#   src/main_simple.cpp
+#   include/ikdtree/ikd_tree.cpp
+# )
+# target_link_libraries(LidarSearchComparison_simple
+#   pthread              # 链接 pthread
+# )

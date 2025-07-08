@@ -103,9 +103,10 @@ void rebuild_nanoflann(std::vector<std::pair<int, pcl::PointCloud<PointType>::Pt
     kdtree.buildIndex();
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "Rebuilding nanoflann tree for " << N << " frames took: " << duration / 1000.0 << " ms" << std::endl;
+    std::cout << "Rebuilding nanoflann tree for " << N << " frames took: " << duration << " µs" << std::endl;
     float query_point[3] = {cloud.pts[0].x, cloud.pts[0].y, cloud.pts[0].z};
 
+    cout << "\n" << string(20, '=') << " knn search " << string(20, '=') << endl;
     for (size_t K : {5, 10, 20}) {
         std::vector<unsigned int> indices(K);
         std::vector<float> distances(K);
@@ -114,12 +115,11 @@ void rebuild_nanoflann(std::vector<std::pair<int, pcl::PointCloud<PointType>::Pt
         unsigned int found = kdtree.knnSearch(&query_point[0], K, indices.data(), distances.data());
         auto knn_search_end = std::chrono::high_resolution_clock::now();
         auto knn_duration = std::chrono::duration_cast<std::chrono::microseconds>(knn_search_end - knn_search_start).count();
-        std::cout << "KNN Search with K=" << K << " took: " << knn_duration / 1000.0 << " ms" << std::endl;
+        std::cout << "KNN Search with K=" << K << " took: " << knn_duration << " µs" << std::endl;
         std::cout << "Found " << found << " nearest points for query point" << std::endl;
     }
 
-    cout << "\n" << string(60, '=') << endl;
-
+    cout << "\n" << string(20, '=') << " radius search " << string(20, '=') << endl;
     for (float R : {0.5f, 1.0f, 5.0f}) {
         std::vector<nanoflann::ResultItem<uint32_t, float>> indices_dists;
         nanoflann::SearchParameters params;
@@ -129,7 +129,7 @@ void rebuild_nanoflann(std::vector<std::pair<int, pcl::PointCloud<PointType>::Pt
         size_t found = kdtree.radiusSearch(&query_point[0], R * R, indices_dists, params);
         auto radius_search_end = std::chrono::high_resolution_clock::now();
         auto radius_duration = std::chrono::duration_cast<std::chrono::microseconds>(radius_search_end - radius_search_start).count();
-        std::cout << "Radius Search with R=" << R << " took: " << radius_duration / 1000.0 << " ms" << std::endl;
+        std::cout << "Radius Search with R=" << R << " took: " << radius_duration << " µs" << std::endl;
         std::cout << "Found " << found << " points within radius " << R << std::endl;
     }
 }
@@ -148,9 +148,10 @@ void rebuild_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>
     ikd_Tree.Build(cloud->points);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "Rebuilding ikd-tree for " << N << " frames took: " << duration / 1000.0 << " ms" << std::endl;
+    std::cout << "Rebuilding ikd-tree for " << N << " frames took: " << duration << " µs" << std::endl;
     std::cout << "Number of valid points: " << ikd_Tree.validnum() << std::endl;
 
+    cout << "\n" << string(20, '=') << " knn search " << string(20, '=') << endl;
     for (int K : {5, 10, 20}) {
         PointVector Nearest_Points;
         std::vector<float> distances(K);
@@ -160,12 +161,11 @@ void rebuild_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>
         ikd_Tree.Nearest_Search(query_point, K, Nearest_Points, distances, 0.5);
         auto knn_search_end = std::chrono::high_resolution_clock::now();
         auto knn_duration = std::chrono::duration_cast<std::chrono::microseconds>(knn_search_end - knn_search_start).count();
-        std::cout << "KNN Search with K=" << K << " took: " << knn_duration / 1000.0 << " ms" << std::endl;
+        std::cout << "KNN Search with K=" << K << " took: " << knn_duration << " µs" << std::endl;
         std::cout << "Found " << Nearest_Points.size() << " nearest points for query point" << std::endl;
     }
     
-    cout << "\n" << string(60, '=') << endl;
-
+    cout << "\n" << string(20, '=') << " radius search " << string(20, '=') << endl;
     for (float R : {0.5f, 1.0f, 5.0f}) {
         PointVector Storage;
         PointType query_point = cloud->points[0];
@@ -174,7 +174,7 @@ void rebuild_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>
         ikd_Tree.Radius_Search(query_point, R, Storage);
         auto radius_search_end = std::chrono::high_resolution_clock::now();
         auto radius_duration = std::chrono::duration_cast<std::chrono::microseconds>(radius_search_end - radius_search_start).count();
-        std::cout << "Radius Search with R=" << R << " took: " << radius_duration / 1000.0 << " ms" << std::endl;
+        std::cout << "Radius Search with R=" << R << " took: " << radius_duration << " µs" << std::endl;
         std::cout << "Found " << Storage.size() << " points within radius " << R << std::endl;
     }
 
@@ -195,7 +195,7 @@ void incremental_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::
     ikd_Tree.Build(cloud->points);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "Rebuilding ikd-tree for " << N << " frames took: " << duration / 1000.0 << " ms" << std::endl;
+    std::cout << "Rebuilding ikd-tree for " << N << " frames took: " << duration << " µs" << std::endl;
     std::cout << "Number of valid points: " << ikd_Tree.validnum() << std::endl;
 
     pcl::PointCloud<PointType>::Ptr add_cloud = frames[N].second; // 获取第 N+1 帧点云
@@ -205,14 +205,14 @@ void incremental_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::
     ikd_Tree.Delete_Points(delete_cloud->points);  // 删除第 0 帧点云
     auto delete_end = std::chrono::high_resolution_clock::now();
     auto delete_duration = std::chrono::duration_cast<std::chrono::microseconds>(delete_end - delete_start).count();
-    std::cout << "Deleting " << delete_cloud->points.size() << " points took: " << delete_duration / 1000.0 << " ms" << std::endl;
+    std::cout << "Deleting " << delete_cloud->points.size() << " points took: " << delete_duration << " µs" << std::endl;
 
     auto add_start = std::chrono::high_resolution_clock::now();
     ikd_Tree.Add_Points(add_cloud->points, false);  // 增量添加点云
     auto add_end = std::chrono::high_resolution_clock::now();
     auto add_duration = std::chrono::duration_cast<std::chrono::microseconds>(add_end - add_start).count();
-    std::cout << "Adding " << add_cloud->points.size() << " points took: " << add_duration / 1000.0 << " ms" << std::endl;
-    std::cout << "Total time : " << (add_duration + delete_duration) / 1000.0 << " ms" << std::endl;
+    std::cout << "Adding " << add_cloud->points.size() << " points took: " << add_duration << " µs" << std::endl;
+    std::cout << "Total time : " << (add_duration + delete_duration) << " µs" << std::endl;
 
     std::cout << "Number of valid points after adding: " << ikd_Tree.validnum() << std::endl;
 }
@@ -230,93 +230,15 @@ int main(int argc, char** argv) {
     for (int N : {3, 6, 30}){
         cout << "Processing " << N << " frames..." << endl;
 
-        cout << "\n" << string(30, '=') << "nanoflann rebuild and search" << string(30, '=') << endl;
+        cout << "\n" << string(30, '=') << " 1. nanoflann rebuild and search " << string(30, '=') << endl;
         rebuild_nanoflann(frames, N);
 
-        cout << "\n" << string(30, '=') << "ikdtree rebuild and search" << string(30, '=') << endl;
+        cout << "\n" << string(30, '=') << " 2. ikdtree rebuild and search " << string(30, '=') << endl;
         rebuild_ikdtree(frames, N);
         
-        cout << "\n" << string(30, '=') << "incremental_ikdtree build" << string(30, '=') << endl;
+        cout << "\n" << string(30, '=') << " 3. incremental_ikdtree build " << string(30, '=') << endl;
         incremental_ikdtree(frames, N);
     }
-
-
-
-    // /*** 1. Initialize k-d tree */
-    // KD_TREE<PointType>::Ptr kdtree_ptr(new KD_TREE<PointType>(0.3, 0.6, 0.2));
-    // KD_TREE<PointType>      &ikd_Tree        = *kdtree_ptr;
-
-    // /*** 2. Load point cloud data */
-    // pcl::PointCloud<PointType>::Ptr src(new pcl::PointCloud<PointType>);
-    // string filename = "../materials/map.pcd";
-    // if (pcl::io::loadPCDFile<PointType>(filename, *src) == -1) //* load the file
-    // {
-    //     PCL_ERROR ("Couldn't read file test_pcd.pcd \n");
-    //     return (-1);
-    // }
-    // printf("Original: %d points are loaded\n", static_cast<int>(src->points.size()));
-
-    // /*** 3. Build ikd-Tree */
-    // auto start = chrono::high_resolution_clock::now();
-    // ikd_Tree.Build((*src).points);
-    // auto end      = chrono::high_resolution_clock::now();
-    // auto duration = chrono::duration_cast<chrono::microseconds>(end - start).count();
-    // printf("Building tree takes: %0.3f ms\n", float(duration) / 1e3);
-    // printf("# of valid points: %d \n", ikd_Tree.validnum());
-
-    // /*** 4. Set a box region and search using box search */
-    // PointType center_pt;
-    // center_pt.x = 150.0;
-    // center_pt.y = 0.0;
-    // center_pt.z = 0.0;
-    // BoxPointType boxpoint;
-    // generate_box(boxpoint, center_pt, {5.00, 5.00, 50.0});
-
-    // start = chrono::high_resolution_clock::now();
-    // PointVector Searched_Points;
-    // ikd_Tree.Box_Search(boxpoint, Searched_Points);
-    // end  = chrono::high_resolution_clock::now();
-    // duration = chrono::duration_cast<chrono::microseconds>(end - start).count();
-    // printf("Search Points by box takes: %0.3f ms with %d points\n", float(duration) / 1e3, static_cast<int>(Searched_Points.size()));
-
-    // /*** 5. Set a ball region and search using radius search */
-    // PointType ball_center_pt;
-    // ball_center_pt.x = 150.0;
-    // ball_center_pt.y = 0.0;
-    // ball_center_pt.z = 2.0;
-    // float radius = 7.5;
-    // start = chrono::high_resolution_clock::now();
-    // PointVector Searched_Points_radius;
-    // ikd_Tree.Radius_Search(ball_center_pt, radius, Searched_Points_radius);
-    // end = chrono::high_resolution_clock::now();
-    // duration = chrono::duration_cast<chrono::microseconds>(end - start).count();
-    // printf("Search Points by radius takes: %0.3f ms with %d points\n", float(duration) / 1e3, int(Searched_Points_radius.size()));
-
-    // /*** Below codes are just for visualization */
-    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr src_colored(new pcl::PointCloud<pcl::PointXYZRGB>);
-    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr searched_colored(new pcl::PointCloud<pcl::PointXYZRGB>);
-    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr searched_radius_colored(new pcl::PointCloud<pcl::PointXYZRGB>);
-
-    // pcl::visualization::PointCloudColorHandlerGenericField<PointType> src_color(src, "x");
-    // colorize(Searched_Points, *searched_colored, {255, 0, 0});
-    // colorize(Searched_Points_radius, *searched_radius_colored, {255, 0, 0});
-
-    // pcl::visualization::PCLVisualizer viewer0("Box Search");
-    // viewer0.addPointCloud<PointType>(src,src_color, "src");
-    // viewer0.addPointCloud<pcl::PointXYZRGB>(searched_colored, "searched");
-    // viewer0.setCameraPosition(-5, 30, 175,  0, 0, 0, 0.2, -1.0, 0.2);
-    // viewer0.setSize(1600, 900);
-
-    // pcl::visualization::PCLVisualizer viewer1("Radius Search");
-    // viewer1.addPointCloud<PointType>(src,src_color, "src");
-    // viewer1.addPointCloud<pcl::PointXYZRGB>(searched_radius_colored, "radius");
-    // viewer1.setCameraPosition(-5, 30, 175,  0, 0, 0, 0.2, -1.0, 0.2);
-    // viewer1.setSize(1600, 900);
-             
-    // while (!viewer0.wasStopped() && !viewer1.wasStopped()){
-    //     viewer0.spinOnce();
-    //     viewer1.spinOnce();
-    // }
 
     return 0;
 }

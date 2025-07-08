@@ -38,16 +38,11 @@ fi
 echo "编译成功!"
 
 # 检查可执行文件
-if [ -f "./LidarSearchComparison_simple" ]; then
-    echo ""
-    echo "=== 运行简化版本 (不依赖ROS/PCL) ==="
-    ./LidarSearchComparison_simple
-fi
 
 if [ -f "./LidarSearchComparison" ]; then
     echo ""
     echo "=== 运行完整版本 (需要ROS/PCL) ==="
-    ./LidarSearchComparison
+    ./main
 fi
 
 echo ""
