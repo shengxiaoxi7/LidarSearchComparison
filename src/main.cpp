@@ -98,25 +98,47 @@ void rebuild_nanoflann(std::vector<std::pair<int, pcl::PointCloud<PointType>::Pt
     }
     cout << "Total points in " << N << " frames: " << cloud.pts.size() << std::endl;
 
-    auto start = std::chrono::high_resolution_clock::now();
+    const int rounds = 100;
+    long long total_rebuild_time = 0;
+    
+    for (int r = 0; r < rounds; ++r) {
+        auto start = std::chrono::high_resolution_clock::now();
+        nano_kdtree kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+        kdtree.buildIndex();
+        auto end = std::chrono::high_resolution_clock::now();
+        total_rebuild_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    }
+    std::cout << "Average rebuilding nanoflann tree for " << N << " frames over " << rounds << " runs took: " << total_rebuild_time / double(rounds) << " µs" << std::endl;
+
+}
+
+void search_nanoflann(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>& frames, int N) {
+    NanoPointCloud cloud;
+    for (int i = N_; i < N_ + N; i++) {
+        const auto& pc = *frames[i].second;
+        cloud.pts.insert(cloud.pts.end(), pc.points.begin(), pc.points.end());
+    }
+    cout << "Total points in " << N << " frames: " << cloud.pts.size() << std::endl;
+
+    const int rounds = 100;
     nano_kdtree kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
     kdtree.buildIndex();
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "Rebuilding nanoflann tree for " << N << " frames took: " << duration << " µs" << std::endl;
-    float query_point[3] = {cloud.pts[0].x, cloud.pts[0].y, cloud.pts[0].z};
 
+    float query_point[3] = {cloud.pts[1000].x, cloud.pts[1000].y, cloud.pts[1000].z};
     cout << "\n" << string(20, '=') << " knn search " << string(20, '=') << endl;
     for (size_t K : {5, 10, 20}) {
+        long long total_knn_time = 0;
         std::vector<unsigned int> indices(K);
         std::vector<float> distances(K);
 
-        auto knn_search_start = std::chrono::high_resolution_clock::now();
-        unsigned int found = kdtree.knnSearch(&query_point[0], K, indices.data(), distances.data());
-        auto knn_search_end = std::chrono::high_resolution_clock::now();
-        auto knn_duration = std::chrono::duration_cast<std::chrono::microseconds>(knn_search_end - knn_search_start).count();
-        std::cout << "KNN Search with K=" << K << " took: " << knn_duration << " µs" << std::endl;
-        std::cout << "Found " << found << " nearest points for query point" << std::endl;
+        for (int r = 0; r < rounds; ++r) {
+            auto knn_search_start = std::chrono::high_resolution_clock::now();
+            kdtree.knnSearch(&query_point[0], K, indices.data(), distances.data());
+            auto knn_search_end = std::chrono::high_resolution_clock::now();
+            total_knn_time += std::chrono::duration_cast<std::chrono::microseconds>(knn_search_end - knn_search_start).count();
+        }
+        std::cout << "Average KNN Search with K=" << K << " over " << rounds << " runs took: " << total_knn_time / double(rounds) << " µs" << std::endl;
+        // std::cout << "Found " << found << " nearest points for query point" << std::endl;
     }
 
     cout << "\n" << string(20, '=') << " radius search " << string(20, '=') << endl;
@@ -124,19 +146,22 @@ void rebuild_nanoflann(std::vector<std::pair<int, pcl::PointCloud<PointType>::Pt
         std::vector<nanoflann::ResultItem<uint32_t, float>> indices_dists;
         nanoflann::SearchParameters params;
         params.sorted = false;
+        long long total_radius_time = 0;
 
-        auto radius_search_start = std::chrono::high_resolution_clock::now();
-        size_t found = kdtree.radiusSearch(&query_point[0], R * R, indices_dists, params);
-        auto radius_search_end = std::chrono::high_resolution_clock::now();
-        auto radius_duration = std::chrono::duration_cast<std::chrono::microseconds>(radius_search_end - radius_search_start).count();
-        std::cout << "Radius Search with R=" << R << " took: " << radius_duration << " µs" << std::endl;
-        std::cout << "Found " << found << " points within radius " << R << std::endl;
+        for (int r = 0; r < rounds; ++r) {
+            auto radius_search_start = std::chrono::high_resolution_clock::now();
+            kdtree.radiusSearch(&query_point[0], R * R, indices_dists, params);
+            auto radius_search_end = std::chrono::high_resolution_clock::now();
+            total_radius_time += std::chrono::duration_cast<std::chrono::microseconds>(radius_search_end - radius_search_start).count();
+        }
+        std::cout << "Average Radius Search with R=" << R << " over " << rounds << " runs took: " << total_radius_time / double(rounds) << " µs" << std::endl;
+        // std::cout << "Found " << found << " points within radius " << R << std::endl;
     }
 }
 
 void rebuild_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>& frames, int N) {
     KD_TREE<PointType>::Ptr kdtree_ptr(new KD_TREE<PointType>(0.3, 0.6, 0.2));
-    KD_TREE<PointType>      &ikd_Tree        = *kdtree_ptr;
+    KD_TREE<PointType> &ikd_Tree = *kdtree_ptr;
 
     pcl::PointCloud<PointType>::Ptr cloud(new pcl::PointCloud<PointType>());
     for (int i = N_; i < N_ + N; i++) {
@@ -144,38 +169,60 @@ void rebuild_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>
     }
     cout << "Total points in " << N << " frames: " << cloud->points.size() << std::endl;
 
-    auto start = std::chrono::high_resolution_clock::now();
+    const int rounds = 100;
+    long long total_rebuild_time = 0;
+
+    for (int r = 0; r < rounds; ++r) {
+        auto start = std::chrono::high_resolution_clock::now();
+        ikd_Tree.Build(cloud->points);
+        auto end = std::chrono::high_resolution_clock::now();
+        total_rebuild_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    }
+    std::cout << "Average rebuilding ikd-tree for " << N << " frames over " << rounds << " runs took: " << total_rebuild_time / double(rounds) << " µs" << std::endl;
+}
+
+void search_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>& frames, int N) {
+    KD_TREE<PointType>::Ptr kdtree_ptr(new KD_TREE<PointType>(0.3, 0.6, 0.2));
+    KD_TREE<PointType> &ikd_Tree = *kdtree_ptr;
+
+    pcl::PointCloud<PointType>::Ptr cloud(new pcl::PointCloud<PointType>());
+    for (int i = N_; i < N_ + N; i++) {
+        *cloud += *frames[i].second;
+    }
+    cout << "Total points in " << N << " frames: " << cloud->points.size() << std::endl;
+
+    const int rounds = 100;
     ikd_Tree.Build(cloud->points);
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "Rebuilding ikd-tree for " << N << " frames took: " << duration << " µs" << std::endl;
-    std::cout << "Number of valid points: " << ikd_Tree.validnum() << std::endl;
 
     cout << "\n" << string(20, '=') << " knn search " << string(20, '=') << endl;
     for (int K : {5, 10, 20}) {
         PointVector Nearest_Points;
         std::vector<float> distances(K);
-        PointType query_point = cloud->points[0];
-        
-        auto knn_search_start = std::chrono::high_resolution_clock::now();
-        ikd_Tree.Nearest_Search(query_point, K, Nearest_Points, distances, 0.5);
-        auto knn_search_end = std::chrono::high_resolution_clock::now();
-        auto knn_duration = std::chrono::duration_cast<std::chrono::microseconds>(knn_search_end - knn_search_start).count();
-        std::cout << "KNN Search with K=" << K << " took: " << knn_duration << " µs" << std::endl;
-        std::cout << "Found " << Nearest_Points.size() << " nearest points for query point" << std::endl;
+        long long total_knn_time = 0;
+        PointType query_point = cloud->points[1000];
+
+        for (int r = 0; r < rounds; ++r) {
+            auto knn_search_start = std::chrono::high_resolution_clock::now();
+            ikd_Tree.Nearest_Search(query_point, K, Nearest_Points, distances, 0.5);
+            auto knn_search_end = std::chrono::high_resolution_clock::now();
+            total_knn_time += std::chrono::duration_cast<std::chrono::microseconds>(knn_search_end - knn_search_start).count();
+        }
+        std::cout << "Average KNN Search with K=" << K << " over " << rounds << " runs took: " << total_knn_time / double(rounds) << " µs" << std::endl;
     }
     
     cout << "\n" << string(20, '=') << " radius search " << string(20, '=') << endl;
     for (float R : {0.5f, 1.0f, 5.0f}) {
         PointVector Storage;
-        PointType query_point = cloud->points[0];
+        long long total_radius_time = 0;
+        PointType query_point = cloud->points[1000];
 
-        auto radius_search_start = std::chrono::high_resolution_clock::now();
-        ikd_Tree.Radius_Search(query_point, R, Storage);
-        auto radius_search_end = std::chrono::high_resolution_clock::now();
-        auto radius_duration = std::chrono::duration_cast<std::chrono::microseconds>(radius_search_end - radius_search_start).count();
-        std::cout << "Radius Search with R=" << R << " took: " << radius_duration << " µs" << std::endl;
-        std::cout << "Found " << Storage.size() << " points within radius " << R << std::endl;
+        for (int r = 0; r < rounds; ++r) {
+            auto radius_search_start = std::chrono::high_resolution_clock::now();
+            ikd_Tree.Radius_Search(query_point, R, Storage);
+            auto radius_search_end = std::chrono::high_resolution_clock::now();
+            total_radius_time += std::chrono::duration_cast<std::chrono::microseconds>(radius_search_end - radius_search_start).count();
+        }
+        std::cout << "Average Radius Search with R=" << R << " over " << rounds << " runs took: " << total_radius_time / double(rounds) << " µs" << std::endl;
     }
 
 }
@@ -221,7 +268,7 @@ void incremental_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::
 int main(int argc, char** argv) {
     ros::init(argc, argv, "LidarSearchComparison");
 
-    std::string bag_file = "/home/syx/wfzf/code/ikdtree_nanoflann/src/LidarSearchComparison/data/9.bag";
+    std::string bag_file = "../data/9.bag";
     std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>> frames;
 
     readfromrosbag(bag_file, frames);
@@ -232,9 +279,11 @@ int main(int argc, char** argv) {
 
         cout << "\n" << string(30, '=') << " 1. nanoflann rebuild and search " << string(30, '=') << endl;
         rebuild_nanoflann(frames, N);
+        search_nanoflann(frames, N);
 
         cout << "\n" << string(30, '=') << " 2. ikdtree rebuild and search " << string(30, '=') << endl;
         rebuild_ikdtree(frames, N);
+        search_ikdtree(frames, N);
         
         cout << "\n" << string(30, '=') << " 3. incremental_ikdtree build " << string(30, '=') << endl;
         incremental_ikdtree(frames, N);

@@ -8,7 +8,7 @@
 
 ## 编译和运行
 
-### 方法一：使用运行脚本（推荐），需要修改其中的 PROJECT_DIR
+### 方法一：使用运行脚本，需要修改脚本中的 PROJECT_DIR；新建data文件夹存放自己的rosbag，修改代码中的 bag_file
 ```bash
 ./run.sh
 ```
@@ -27,7 +27,7 @@ make -j4
 # 运行简化版本（弃用）
 # ./LidarSearchComparison_simple
 
-# 运行完整版本（如果有 ROS/PCL 环境）
+# 运行完整版本（如果有 ROS/PCL 环境），新建data文件夹存放自己的rosbag，修改代码中的 bag_file
 ./main
 ```
 
