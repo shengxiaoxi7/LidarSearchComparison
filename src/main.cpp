@@ -1,402 +1,322 @@
-#include <iostream>
-#include <chrono>
-#include <vector>
-#include <pcl/point_types.h>
+
 #include <ros/ros.h>
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
 #include <sensor_msgs/PointCloud2.h>
-#include <pcl/point_cloud.h>
+#include "ikd_tree.h"
+#include "nanoflann.hpp"
+#include <stdio.h>
+#include <stdlib.h>
+#include <random>
+#include <algorithm>
+#include "pcl/point_types.h"
+#include "pcl/common/common.h"
+#include "pcl/point_cloud.h"
 #include <pcl/io/pcd_io.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <boost/foreach.hpp>
-#include <nanoflann.hpp>
-#include <Eigen/Dense>
-#include "../libs/ikdtree/ikd_tree.h"
+#include <pcl_ros/point_cloud.h> 
+#include <pcl/visualization/pcl_visualizer.h>
 
 using namespace std;
-using namespace pcl;
+using PointType = pcl::PointXYZ;
+using PointVector = KD_TREE<PointType>::PointVector;
+template class KD_TREE<pcl::PointXYZ>;
 
-struct PerformanceTestData {
-    std::vector<std::vector<pcl::PointXYZ>> consecutive_frames;  
-    std::vector<pcl::PointXYZ> merged_points;                   
-    int frame_count;
-    int total_points;
-};
-
-PerformanceTestData prepare_performance_test_data(const std::string& rosbag_file, int N);
-void benchmark_tree_construction_rebuild_nanoflann(const std::vector<pcl::PointXYZ>& points, const std::string& method_name);
-void benchmark_tree_construction_rebuild_ikdtree(const std::vector<pcl::PointXYZ>& points, const std::string& method_name);
-void benchmark_tree_construction_incremental_ikdtree(const std::vector<std::vector<pcl::PointXYZ>>& frames, const std::string& method_name);
-void benchmark_search_performance_nanoflann(const std::vector<pcl::PointXYZ>& points, const pcl::PointXYZ& query_point, const std::string& method_name);
-void benchmark_search_performance_ikdtree(const std::vector<pcl::PointXYZ>& points, const pcl::PointXYZ& query_point, const std::string& method_name);
-
-int main() {
-    std::cout << "=== LiDAR Search Comparison: ikdtree vs nanoflann ===" << std::endl;
-    std::cout << "Core Objective: Compare build/search efficiency between ikdtree and nanoflann" << std::endl;
-
-    for (int N : {3, 6, 30}) {
-        
-        std::cout << "TESTING WITH N = " << N << " CONSECUTIVE FRAMES" << std::endl;
-
-        auto test_data = prepare_performance_test_data("../data/9.bag", N);
-        
-        if (test_data.frame_count == 0) {
-            std::cout << "No data loaded for N=" << N << ", skipping..." << std::endl;
-            continue;
-        }
-
-        pcl::PointXYZ query_point;
-        if (!test_data.consecutive_frames.empty() && !test_data.consecutive_frames[0].empty()) {
-            query_point = test_data.consecutive_frames[0][0];
-        } else {
-            std::cout << "No valid query point, skipping search tests..." << std::endl;
-            continue;
-        }
-        
-        std::cout << "\n--- 1. TREE CONSTRUCTION COMPARISON (REBUILD MODE) ---" << std::endl;
-        std::cout << "Testing reconstruction of trees using " << test_data.total_points << " points from " << N << " frames" << std::endl;
-        
-        // 1. nanoflann重新构建树的测试
-        benchmark_tree_construction_rebuild_nanoflann(test_data.merged_points, "nanoflann");
-        
-        // 2. ikdtree重新构建树的测试 (暂时跳过，有崩溃问题)
-        // benchmark_tree_construction_rebuild_ikdtree(test_data.merged_points, "ikdtree");
-        
-        std::cout << "\n--- 2. TREE CONSTRUCTION COMPARISON (INCREMENTAL MODE) ---" << std::endl;
-        std::cout << "Testing incremental construction using " << N << " consecutive frames" << std::endl;
-        // benchmark_tree_construction_incremental_ikdtree(test_data.consecutive_frames, "ikdtree_incremental");
-
-        std::cout << "\n--- 3. SEARCH PERFORMANCE COMPARISON ---" << std::endl;
-        std::cout << "Testing KNN and RadiusNN search with different parameters" << std::endl;
-        
-        // 3. 搜索性能对比测试
-        benchmark_search_performance_nanoflann(test_data.merged_points, query_point, "nanoflann");
-        // benchmark_search_performance_ikdtree(test_data.merged_points, query_point, "ikdtree");
-    }
-    
-    std::cout << "PERFORMANCE COMPARISON COMPLETED" << std::endl;
-    
-    return 0;
-}
-
-std::vector<std::vector<pcl::PointXYZ>> load_lidar_frames_from_rosbag(const std::string& rosbag_file, int max_frames = -1) {
-    std::vector<std::vector<pcl::PointXYZ>> frames;
-    
-    try {
-        rosbag::Bag bag;
-        bag.open(rosbag_file, rosbag::bagmode::Read);
-        
-        rosbag::View view(bag);
-        
-        if (view.size() == 0) {
-            std::cerr << "Warning: Bag file is empty: " << rosbag_file << std::endl;
-            bag.close();
-            return frames;
-        }
-        
-        int frame_count = 0;
-        
-        BOOST_FOREACH(rosbag::MessageInstance const m, view) {
-            if (m.getTopic() == "/cloud_registered") {
-                sensor_msgs::PointCloud2::ConstPtr msg = m.instantiate<sensor_msgs::PointCloud2>();
-                if (msg != nullptr) {
-                    try {
-                        PointCloud<PointXYZ> cloud;
-                        pcl::fromROSMsg(*msg, cloud);
-                        
-                        if (!cloud.empty()) {
-                            std::vector<pcl::PointXYZ> frame_points(cloud.points.begin(), cloud.points.end());
-                            frames.push_back(frame_points);
-                            frame_count++;
-                            
-                            if (max_frames > 0 && frame_count >= max_frames) {
-                                break;
-                            }
-                        }
-                    } catch (const std::exception& e) {
-                        std::cerr << "Error converting PointCloud2 message: " << e.what() << std::endl;
-                        continue;
-                    }
-                }
-            }
-        }
-        
-        bag.close();
-        std::cout << "Loaded " << frames.size() << " consecutive frames" << std::endl;
-        
-    } catch (const rosbag::BagException& e) {
-        std::cerr << "Error opening bag file " << rosbag_file << ": " << e.what() << std::endl;
-    } catch (const std::exception& e) {
-        std::cerr << "Unexpected error: " << e.what() << std::endl;
-    }
-    
-    return frames;
-}
-
-PerformanceTestData prepare_performance_test_data(const std::string& rosbag_file, int N) {
-    PerformanceTestData test_data;
-    
-    auto frames = load_lidar_frames_from_rosbag(rosbag_file, N);
-    
-    test_data.consecutive_frames = frames;
-    test_data.frame_count = frames.size();
-    test_data.total_points = 0;
-
-    for (const auto& frame : frames) {
-        test_data.merged_points.insert(test_data.merged_points.end(), frame.begin(), frame.end());
-        test_data.total_points += frame.size();
-    }
-    
-    std::cout << "Prepared " << test_data.frame_count << " frames with " << test_data.total_points << " total points" << std::endl;
-    
-    return test_data;
-}
+static int N_ = 100;
 
 struct NanoPointCloud {
-    std::vector<pcl::PointXYZ> points;
-    inline size_t kdtree_get_point_count() const { return points.size(); }
+    std::vector<pcl::PointXYZ> pts;
+
+    inline size_t kdtree_get_point_count() const { return pts.size(); }
     inline double kdtree_get_pt(const size_t idx, const size_t dim) const {
-        if (dim == 0) return points[idx].x;
-        else if (dim == 1) return points[idx].y;
-        else return points[idx].z;
+        if (dim == 0) return pts[idx].x;
+        else if (dim == 1) return pts[idx].y;
+        else           return pts[idx].z;
     }
     template <class BBOX>
-    bool kdtree_get_bbox(BBOX &bb) const { (void)bb; return false; }
+    bool kdtree_get_bbox(BBOX&) const { return false; }
 };
 
-typedef nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<float, NanoPointCloud>, NanoPointCloud, 3> my_kd_tree_t;
+// 2) 定义 nanoflann 的树类型
+using nano_kdtree = nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<float, NanoPointCloud>, NanoPointCloud, 3 /* dim */>;
 
-void benchmark_tree_construction_rebuild_nanoflann(const std::vector<pcl::PointXYZ>& points, const std::string& method_name) {
-    std::cout << "\n[" << method_name << "] Rebuild mode with " << points.size() << " points:" << std::endl;
-    
+void colorize( const PointVector &pc, pcl::PointCloud<pcl::PointXYZRGB> &pc_colored, const std::vector<int> &color) {
+    int N = pc.size();
+
+    pc_colored.clear();
+    pcl::PointXYZRGB pt_tmp;
+
+    for (int i = 0; i < N; ++i) {
+        const auto &pt = pc[i];
+        pt_tmp.x = pt.x;
+        pt_tmp.y = pt.y;
+        pt_tmp.z = pt.z;
+        pt_tmp.r = color[0];
+        pt_tmp.g = color[1];
+        pt_tmp.b = color[2];
+        pc_colored.points.emplace_back(pt_tmp);
+    }
+}
+
+void generate_box(BoxPointType &boxpoint, const PointType &center_pt, vector<float> box_lengths) {
+    float &x_dist = box_lengths[0];
+    float &y_dist = box_lengths[1];
+    float &z_dist = box_lengths[2];
+
+    boxpoint.vertex_min[0] = center_pt.x - x_dist;
+    boxpoint.vertex_max[0] = center_pt.x + x_dist;
+    boxpoint.vertex_min[1] = center_pt.y - y_dist;
+    boxpoint.vertex_max[1] = center_pt.y + y_dist;
+    boxpoint.vertex_min[2] = center_pt.z - z_dist;
+    boxpoint.vertex_max[2] = center_pt.z + z_dist;
+}
+
+void readfromrosbag(const std::string& bag_file, std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>& frames)
+{
+    rosbag::Bag bag;
+    bag.open(bag_file, rosbag::bagmode::Read);
+    rosbag::View view(bag, rosbag::TopicQuery("/cloud_registered"));
+
+    int frame_count = 0;
+    for (const auto& m : view) {
+        sensor_msgs::PointCloud2::ConstPtr msg = m.instantiate<sensor_msgs::PointCloud2>();
+        if (msg) {
+            pcl::PointCloud<PointType>::Ptr cloud(new pcl::PointCloud<PointType>);
+            pcl::fromROSMsg(*msg, *cloud);
+
+            frames.push_back(std::make_pair(frame_count, cloud));
+            frame_count++;
+        }
+    }
+    bag.close();
+}
+
+void rebuild_nanoflann(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>& frames, int N) {
     NanoPointCloud cloud;
-    cloud.points = points;
-
-    const int test_rounds = 5;
-    double total_time = 0.0;
-    
-    for (int i = 0; i < test_rounds; ++i) {
-        auto start = chrono::high_resolution_clock::now();
-
-        my_kd_tree_t kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
-        
-        auto end = chrono::high_resolution_clock::now();
-        chrono::duration<double> elapsed = end - start;
-        total_time += elapsed.count();
+    for (int i = N_; i < N_ + N; i++) {
+        const auto& pc = *frames[i].second;
+        cloud.pts.insert(cloud.pts.end(), pc.points.begin(), pc.points.end());
     }
-    
-    double avg_time = total_time / test_rounds;
-    std::cout << "  Average construction time: " << avg_time * 1000 << " ms" << std::endl;
-    std::cout << "  Points per millisecond: " << points.size() / (avg_time * 1000) << std::endl;
-}
+    cout << "Total points in " << N << " frames: " << cloud.pts.size() << std::endl;
 
+    auto start = std::chrono::high_resolution_clock::now();
+    nano_kdtree kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+    kdtree.buildIndex();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "Rebuilding nanoflann tree for " << N << " frames took: " << duration / 1000.0 << " ms" << std::endl;
+    float query_point[3] = {cloud.pts[0].x, cloud.pts[0].y, cloud.pts[0].z};
 
-void benchmark_tree_construction_rebuild_ikdtree(const std::vector<pcl::PointXYZ>& points, const std::string& method_name) {
-    std::cout << "\n[" << method_name << "] Rebuild mode with " << points.size() << " points:" << std::endl;
-    
-    if (points.empty()) {
-        std::cout << "  No points to process" << std::endl;
-        return;
+    for (size_t K : {5, 10, 20}) {
+        std::vector<unsigned int> indices(K);
+        std::vector<float> distances(K);
+
+        auto knn_search_start = std::chrono::high_resolution_clock::now();
+        unsigned int found = kdtree.knnSearch(&query_point[0], K, indices.data(), distances.data());
+        auto knn_search_end = std::chrono::high_resolution_clock::now();
+        auto knn_duration = std::chrono::duration_cast<std::chrono::microseconds>(knn_search_end - knn_search_start).count();
+        std::cout << "KNN Search with K=" << K << " took: " << knn_duration / 1000.0 << " ms" << std::endl;
+        std::cout << "Found " << found << " nearest points for query point" << std::endl;
     }
 
-    const int test_rounds = 5;
-    double total_time = 0.0;
-    
-    for (int i = 0; i < test_rounds; ++i) {
-        std::cout << "  Test round " << (i+1) << "/" << test_rounds << std::endl;
-        
-        try {
-            auto start = chrono::high_resolution_clock::now();
+    cout << "\n" << string(60, '=') << endl;
 
-            KD_TREE<pcl::PointXYZ> ikd_tree(0.5, 0.6, 0.2);
+    for (float R : {0.5f, 1.0f, 5.0f}) {
+        std::vector<nanoflann::ResultItem<uint32_t, float>> indices_dists;
+        nanoflann::SearchParameters params;
+        params.sorted = false;
 
-            vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> point_vector(points.begin(), points.end());
-            
-            std::cout << "    Building tree with " << point_vector.size() << " points" << std::endl;
-            ikd_tree.Build(point_vector);
-            std::cout << "    Tree built successfully, size: " << ikd_tree.size() << std::endl;
-            
-            auto end = chrono::high_resolution_clock::now();
-            chrono::duration<double> elapsed = end - start;
-            total_time += elapsed.count();
-            
-        } catch (const std::exception& e) {
-            std::cerr << "    Error in round " << (i+1) << ": " << e.what() << std::endl;
-            return;
-        } catch (...) {
-            std::cerr << "    Unknown error in round " << (i+1) << std::endl;
-            return;
-        }
-    }
-    
-    double avg_time = total_time / test_rounds;
-    std::cout << "  Average construction time: " << avg_time * 1000 << " ms" << std::endl;
-    std::cout << "  Points per millisecond: " << points.size() / (avg_time * 1000) << std::endl;
-}
-
-void benchmark_tree_construction_incremental_ikdtree(const std::vector<std::vector<pcl::PointXYZ>>& frames, const std::string& method_name) {
-    std::cout << "\n[" << method_name << "] Incremental mode with " << frames.size() << " frames:" << std::endl;
-    
-    if (frames.empty()) {
-        std::cout << "  No frames to process" << std::endl;
-        return;
-    }
-    
-    try {
-        auto start_total = chrono::high_resolution_clock::now();
-
-        KD_TREE<pcl::PointXYZ> ikd_tree(0.5, 0.6, 0.2);
-        double total_construction_time = 0.0;
-
-        if (!frames[0].empty()) {
-            auto start = chrono::high_resolution_clock::now();
-            vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> initial_points(frames[0].begin(), frames[0].end());
-            ikd_tree.Build(initial_points);
-            auto end = chrono::high_resolution_clock::now();
-            chrono::duration<double> elapsed = end - start;
-            total_construction_time += elapsed.count();
-            
-            std::cout << "  Frame 1: built initial tree with " << frames[0].size() 
-                      << " points, time=" << elapsed.count() * 1000 << " ms" << std::endl;
-        }
-
-        for (size_t i = 1; i < frames.size(); ++i) {
-            auto start = chrono::high_resolution_clock::now();
-
-            vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> frame_points(frames[i].begin(), frames[i].end());
-            ikd_tree.Add_Points(frame_points, false);
-            
-            auto end = chrono::high_resolution_clock::now();
-            chrono::duration<double> elapsed = end - start;
-            total_construction_time += elapsed.count();
-            
-            std::cout << "  Frame " << i+1 << ": added " << frames[i].size() 
-                      << " points, total_tree_size=" << ikd_tree.size()
-                      << ", time=" << elapsed.count() * 1000 << " ms" << std::endl;
-        }
-        
-        auto end_total = chrono::high_resolution_clock::now();
-        chrono::duration<double> total_elapsed = end_total - start_total;
-        
-        std::cout << "  Total incremental construction time: " << total_construction_time * 1000 << " ms" << std::endl;
-        std::cout << "  Average time per frame: " << (total_construction_time / frames.size()) * 1000 << " ms" << std::endl;
-        std::cout << "  Final tree size: " << ikd_tree.size() << " points" << std::endl;
-        
-    } catch (const std::exception& e) {
-        std::cerr << "  Error in incremental construction: " << e.what() << std::endl;
-    } catch (...) {
-        std::cerr << "  Unknown error in incremental construction" << std::endl;
+        auto radius_search_start = std::chrono::high_resolution_clock::now();
+        size_t found = kdtree.radiusSearch(&query_point[0], R * R, indices_dists, params);
+        auto radius_search_end = std::chrono::high_resolution_clock::now();
+        auto radius_duration = std::chrono::duration_cast<std::chrono::microseconds>(radius_search_end - radius_search_start).count();
+        std::cout << "Radius Search with R=" << R << " took: " << radius_duration / 1000.0 << " ms" << std::endl;
+        std::cout << "Found " << found << " points within radius " << R << std::endl;
     }
 }
 
-void benchmark_search_performance_nanoflann(const std::vector<pcl::PointXYZ>& points, const pcl::PointXYZ& query_point, const std::string& method_name) {
-    std::cout << "\n[" << method_name << "] Search performance with " << points.size() << " points:" << std::endl;
+void rebuild_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>& frames, int N) {
+    KD_TREE<PointType>::Ptr kdtree_ptr(new KD_TREE<PointType>(0.3, 0.6, 0.2));
+    KD_TREE<PointType>      &ikd_Tree        = *kdtree_ptr;
+
+    pcl::PointCloud<PointType>::Ptr cloud(new pcl::PointCloud<PointType>());
+    for (int i = N_; i < N_ + N; i++) {
+        *cloud += *frames[i].second;
+    }
+    cout << "Total points in " << N << " frames: " << cloud->points.size() << std::endl;
+
+    auto start = std::chrono::high_resolution_clock::now();
+    ikd_Tree.Build(cloud->points);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "Rebuilding ikd-tree for " << N << " frames took: " << duration / 1000.0 << " ms" << std::endl;
+    std::cout << "Number of valid points: " << ikd_Tree.validnum() << std::endl;
+
+    for (int K : {5, 10, 20}) {
+        PointVector Nearest_Points;
+        std::vector<float> distances(K);
+        PointType query_point = cloud->points[0];
+        
+        auto knn_search_start = std::chrono::high_resolution_clock::now();
+        ikd_Tree.Nearest_Search(query_point, K, Nearest_Points, distances, 0.5);
+        auto knn_search_end = std::chrono::high_resolution_clock::now();
+        auto knn_duration = std::chrono::duration_cast<std::chrono::microseconds>(knn_search_end - knn_search_start).count();
+        std::cout << "KNN Search with K=" << K << " took: " << knn_duration / 1000.0 << " ms" << std::endl;
+        std::cout << "Found " << Nearest_Points.size() << " nearest points for query point" << std::endl;
+    }
     
-    NanoPointCloud cloud;
-    cloud.points = points;
-    my_kd_tree_t kdtree(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+    cout << "\n" << string(60, '=') << endl;
 
-    std::cout << "  KNN Search Results:" << std::endl;
-    for (size_t k : {5, 10, 20}) {
-        if (k > points.size()) continue;
-        
-        std::vector<uint32_t> ret_index(k);
-        std::vector<float> out_distances(k);
-        
-        const int search_rounds = 100;
-        double total_time = 0.0;
-        
-        for (int i = 0; i < search_rounds; ++i) {
-            auto start = chrono::high_resolution_clock::now();
-            kdtree.knnSearch(&query_point.x, k, &ret_index[0], &out_distances[0]);
-            auto end = chrono::high_resolution_clock::now();
-            total_time += chrono::duration<double>(end - start).count();
-        }
-        
-        double avg_time = (total_time / search_rounds) * 1000; 
-        std::cout << "    K=" << k << ": " << avg_time << " ms" << std::endl;
+    for (float R : {0.5f, 1.0f, 5.0f}) {
+        PointVector Storage;
+        PointType query_point = cloud->points[0];
+
+        auto radius_search_start = std::chrono::high_resolution_clock::now();
+        ikd_Tree.Radius_Search(query_point, R, Storage);
+        auto radius_search_end = std::chrono::high_resolution_clock::now();
+        auto radius_duration = std::chrono::duration_cast<std::chrono::microseconds>(radius_search_end - radius_search_start).count();
+        std::cout << "Radius Search with R=" << R << " took: " << radius_duration / 1000.0 << " ms" << std::endl;
+        std::cout << "Found " << Storage.size() << " points within radius " << R << std::endl;
     }
 
-    std::cout << "  Radius Search Results:" << std::endl;
-    for (float r : {0.5f, 1.0f, 5.0f}) {
-        std::vector<nanoflann::ResultItem<uint32_t, float>> ret_indices_dists;
-        
-        const int search_rounds = 100;
-        double total_time = 0.0;
-        int total_found = 0;
-        
-        for (int i = 0; i < search_rounds; ++i) {
-            ret_indices_dists.clear();
-            auto start = chrono::high_resolution_clock::now();
-            kdtree.radiusSearch(&query_point.x, r * r, ret_indices_dists);
-            auto end = chrono::high_resolution_clock::now();
-            total_time += chrono::duration<double>(end - start).count();
-            total_found += ret_indices_dists.size();
-        }
-        
-        double avg_time = (total_time / search_rounds) * 1000;
-        int avg_found = total_found / search_rounds;
-        std::cout << "    R=" << r << ": " << avg_time << " ms, avg_found=" << avg_found << std::endl;
-    }
 }
 
-void benchmark_search_performance_ikdtree(const std::vector<pcl::PointXYZ>& points, const pcl::PointXYZ& query_point, const std::string& method_name) {
-    std::cout << "\n[" << method_name << "] Search performance with " << points.size() << " points:" << std::endl;
-    
-    try {
+void incremental_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>& frames, int N) {
 
-        KD_TREE<pcl::PointXYZ> ikd_tree(0.5, 0.6, 0.2);
-        vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> point_vector(points.begin(), points.end());
-        ikd_tree.Build(point_vector);
-        
-        std::cout << "  Tree built successfully for search testing, size: " << ikd_tree.size() << std::endl;
+    KD_TREE<PointType>::Ptr kdtree_ptr(new KD_TREE<PointType>(0.3, 0.6, 0.2));
+    KD_TREE<PointType> &ikd_Tree = *kdtree_ptr;
 
-    std::cout << "  KNN Search Results:" << std::endl;
-    for (size_t k : {5, 10, 20}) {
-        if (k > points.size()) continue;
+    pcl::PointCloud<PointType>::Ptr cloud(new pcl::PointCloud<PointType>());
+    for (int i = N_; i < N_ + N; i++) {
+        *cloud += *frames[i].second;
+    }
+    std::cout << "Total points in " << N << " frames: " << cloud->points.size() << std::endl;
+
+    auto start = std::chrono::high_resolution_clock::now();
+    ikd_Tree.Build(cloud->points);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "Rebuilding ikd-tree for " << N << " frames took: " << duration / 1000.0 << " ms" << std::endl;
+    std::cout << "Number of valid points: " << ikd_Tree.validnum() << std::endl;
+
+    pcl::PointCloud<PointType>::Ptr add_cloud = frames[N].second; // 获取第 N+1 帧点云
+    pcl::PointCloud<PointType>::Ptr delete_cloud = frames[0].second;
+
+    auto delete_start = std::chrono::high_resolution_clock::now();
+    ikd_Tree.Delete_Points(delete_cloud->points);  // 删除第 0 帧点云
+    auto delete_end = std::chrono::high_resolution_clock::now();
+    auto delete_duration = std::chrono::duration_cast<std::chrono::microseconds>(delete_end - delete_start).count();
+    std::cout << "Deleting " << delete_cloud->points.size() << " points took: " << delete_duration / 1000.0 << " ms" << std::endl;
+
+    auto add_start = std::chrono::high_resolution_clock::now();
+    ikd_Tree.Add_Points(add_cloud->points, false);  // 增量添加点云
+    auto add_end = std::chrono::high_resolution_clock::now();
+    auto add_duration = std::chrono::duration_cast<std::chrono::microseconds>(add_end - add_start).count();
+    std::cout << "Adding " << add_cloud->points.size() << " points took: " << add_duration / 1000.0 << " ms" << std::endl;
+    std::cout << "Total time : " << (add_duration + delete_duration) / 1000.0 << " ms" << std::endl;
+
+    std::cout << "Number of valid points after adding: " << ikd_Tree.validnum() << std::endl;
+}
+
+
+int main(int argc, char** argv) {
+    ros::init(argc, argv, "LidarSearchComparison");
+
+    std::string bag_file = "/home/syx/wfzf/code/ikdtree_nanoflann/src/LidarSearchComparison/data/9.bag";
+    std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>> frames;
+
+    readfromrosbag(bag_file, frames);
+    cout << "Loaded " << frames.size() << " frames from bag file." << endl;
+
+    for (int N : {3, 6, 30}){
+        cout << "Processing " << N << " frames..." << endl;
+
+        cout << "\n" << string(30, '=') << "nanoflann rebuild and search" << string(30, '=') << endl;
+        rebuild_nanoflann(frames, N);
+
+        cout << "\n" << string(30, '=') << "ikdtree rebuild and search" << string(30, '=') << endl;
+        rebuild_ikdtree(frames, N);
         
-        const int search_rounds = 100;
-        double total_time = 0.0;
-        
-        for (int i = 0; i < search_rounds; ++i) {
-            vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> nearest_points;
-            vector<float> point_distances;
-            
-            auto start = chrono::high_resolution_clock::now();
-            ikd_tree.Nearest_Search(query_point, k, nearest_points, point_distances);
-            auto end = chrono::high_resolution_clock::now();
-            total_time += chrono::duration<double>(end - start).count();
-        }
-        
-        double avg_time = (total_time / search_rounds) * 1000;
-        std::cout << "    K=" << k << ": " << avg_time << " ms" << std::endl;
+        cout << "\n" << string(30, '=') << "incremental_ikdtree build" << string(30, '=') << endl;
+        incremental_ikdtree(frames, N);
     }
 
-    std::cout << "  Radius Search Results:" << std::endl;
-    for (float r : {0.5f, 1.0f, 5.0f}) {
-        const int search_rounds = 100;
-        double total_time = 0.0;
-        int total_found = 0;
-        
-        for (int i = 0; i < search_rounds; ++i) {
-            vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> radius_points;
-            
-            auto start = chrono::high_resolution_clock::now();
-            ikd_tree.Radius_Search(query_point, r, radius_points);
-            auto end = chrono::high_resolution_clock::now();
-            total_time += chrono::duration<double>(end - start).count();
-            total_found += radius_points.size();
-        }
-        
-        double avg_time = (total_time / search_rounds) * 1000;
-        int avg_found = total_found / search_rounds;
-        std::cout << "    R=" << r << ": " << avg_time << " ms, avg_found=" << avg_found << std::endl;
-    }
-    
-    } catch (const std::exception& e) {
-        std::cerr << "  Error in search performance test: " << e.what() << std::endl;
-    } catch (...) {
-        std::cerr << "  Unknown error in search performance test" << std::endl;
-    }
+
+
+    // /*** 1. Initialize k-d tree */
+    // KD_TREE<PointType>::Ptr kdtree_ptr(new KD_TREE<PointType>(0.3, 0.6, 0.2));
+    // KD_TREE<PointType>      &ikd_Tree        = *kdtree_ptr;
+
+    // /*** 2. Load point cloud data */
+    // pcl::PointCloud<PointType>::Ptr src(new pcl::PointCloud<PointType>);
+    // string filename = "../materials/map.pcd";
+    // if (pcl::io::loadPCDFile<PointType>(filename, *src) == -1) //* load the file
+    // {
+    //     PCL_ERROR ("Couldn't read file test_pcd.pcd \n");
+    //     return (-1);
+    // }
+    // printf("Original: %d points are loaded\n", static_cast<int>(src->points.size()));
+
+    // /*** 3. Build ikd-Tree */
+    // auto start = chrono::high_resolution_clock::now();
+    // ikd_Tree.Build((*src).points);
+    // auto end      = chrono::high_resolution_clock::now();
+    // auto duration = chrono::duration_cast<chrono::microseconds>(end - start).count();
+    // printf("Building tree takes: %0.3f ms\n", float(duration) / 1e3);
+    // printf("# of valid points: %d \n", ikd_Tree.validnum());
+
+    // /*** 4. Set a box region and search using box search */
+    // PointType center_pt;
+    // center_pt.x = 150.0;
+    // center_pt.y = 0.0;
+    // center_pt.z = 0.0;
+    // BoxPointType boxpoint;
+    // generate_box(boxpoint, center_pt, {5.00, 5.00, 50.0});
+
+    // start = chrono::high_resolution_clock::now();
+    // PointVector Searched_Points;
+    // ikd_Tree.Box_Search(boxpoint, Searched_Points);
+    // end  = chrono::high_resolution_clock::now();
+    // duration = chrono::duration_cast<chrono::microseconds>(end - start).count();
+    // printf("Search Points by box takes: %0.3f ms with %d points\n", float(duration) / 1e3, static_cast<int>(Searched_Points.size()));
+
+    // /*** 5. Set a ball region and search using radius search */
+    // PointType ball_center_pt;
+    // ball_center_pt.x = 150.0;
+    // ball_center_pt.y = 0.0;
+    // ball_center_pt.z = 2.0;
+    // float radius = 7.5;
+    // start = chrono::high_resolution_clock::now();
+    // PointVector Searched_Points_radius;
+    // ikd_Tree.Radius_Search(ball_center_pt, radius, Searched_Points_radius);
+    // end = chrono::high_resolution_clock::now();
+    // duration = chrono::duration_cast<chrono::microseconds>(end - start).count();
+    // printf("Search Points by radius takes: %0.3f ms with %d points\n", float(duration) / 1e3, int(Searched_Points_radius.size()));
+
+    // /*** Below codes are just for visualization */
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr src_colored(new pcl::PointCloud<pcl::PointXYZRGB>);
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr searched_colored(new pcl::PointCloud<pcl::PointXYZRGB>);
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr searched_radius_colored(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+    // pcl::visualization::PointCloudColorHandlerGenericField<PointType> src_color(src, "x");
+    // colorize(Searched_Points, *searched_colored, {255, 0, 0});
+    // colorize(Searched_Points_radius, *searched_radius_colored, {255, 0, 0});
+
+    // pcl::visualization::PCLVisualizer viewer0("Box Search");
+    // viewer0.addPointCloud<PointType>(src,src_color, "src");
+    // viewer0.addPointCloud<pcl::PointXYZRGB>(searched_colored, "searched");
+    // viewer0.setCameraPosition(-5, 30, 175,  0, 0, 0, 0.2, -1.0, 0.2);
+    // viewer0.setSize(1600, 900);
+
+    // pcl::visualization::PCLVisualizer viewer1("Radius Search");
+    // viewer1.addPointCloud<PointType>(src,src_color, "src");
+    // viewer1.addPointCloud<pcl::PointXYZRGB>(searched_radius_colored, "radius");
+    // viewer1.setCameraPosition(-5, 30, 175,  0, 0, 0, 0.2, -1.0, 0.2);
+    // viewer1.setSize(1600, 900);
+             
+    // while (!viewer0.wasStopped() && !viewer1.wasStopped()){
+    //     viewer0.spinOnce();
+    //     viewer1.spinOnce();
+    // }
+
+    return 0;
 }

@@ -2,10 +2,11 @@
 #include <chrono>
 #include <vector>
 #include <random>
-#include <nanoflann.hpp>
-#include <ikd_tree.h>
+#include "nanoflann.hpp"
+#include "ikd_tree.h"
 
 using namespace std;
+using ikdPointType = ikdTree_PointType; 
 
 struct PointXYZ {
     float x, y, z;
@@ -76,45 +77,49 @@ void benchmark_tree_construction_rebuild_nanoflann(const std::vector<PointXYZ>& 
     cout << "  Points per millisecond: " << points.size() / (avg_time * 1000) << endl;
 }
 
-struct ikdPointCloud {
-    std::vector<PointXYZ, Eigen::aligned_allocator<PointXYZ>> points;
-
-    inline size_t kdtree_get_point_count() const { return points.size(); }
-    inline double kdtree_get_pt(const size_t idx, const size_t dim) const {
-        if (dim == 0) return points[idx].x;
-        else if (dim == 1) return points[idx].y;
-        else return points[idx].z;
-    }
-    template <class BBOX>
-    bool kdtree_get_bbox(BBOX &bb) const { (void)bb; return false; }
-};
-
-// 2. ikdtree重新构建树的性能测试
-template <typename PointType>
-void benchmark_tree_construction_rebuild_ikd(const std::vector<PointXYZ>& points, const std::string& method_name) {
+// 2. 修复后的ikdtree重新构建树的性能测试
+void benchmark_tree_construction_rebuild_ikdtree(const std::vector<PointXYZ>& points, const std::string& method_name) {
     cout << "\n[" << method_name << "] Rebuild mode with " << points.size() << " points:" << endl;
-    
-    ikdPointCloud cloud;
-    cloud.points = points;
 
+    // 正确转换点类型
+    std::vector<ikdTree_PointType, Eigen::aligned_allocator<ikdTree_PointType>> ikd_points;
+    ikd_points.reserve(points.size());
+    
+    for (const auto& point : points) {
+        ikdTree_PointType ikd_point;
+        ikd_point.x = point.x;
+        ikd_point.y = point.y;
+        ikd_point.z = point.z;
+        ikd_points.push_back(ikd_point);
+    }
+    
+    cout << "Converted to ikdTree_PointType, size: " << ikd_points.size() << endl;
+    
     const int test_rounds = 5;
     double total_time = 0.0;
-    
+
     for (int i = 0; i < test_rounds; ++i) {
         auto start = chrono::high_resolution_clock::now();
 
-        KD_TREE<PointXYZ> kdtree(0.1f, 0.1f, 0.05f); 
-        kdtree.Build(cloud.points);
+        // 创建ikdTree实例
+        KD_TREE<ikdTree_PointType> kdtree;
         
+        // 构建树
+        kdtree.Build(ikd_points);
+
         auto end = chrono::high_resolution_clock::now();
         chrono::duration<double> elapsed = end - start;
         total_time += elapsed.count();
+        
+        // 验证构建是否成功
+        cout << "Round " << i+1 << ": valid points = " << kdtree.validnum() << endl;
     }
-    
+
     double avg_time = total_time / test_rounds;
     cout << "  Average construction time: " << avg_time * 1000 << " ms" << endl;
     cout << "  Points per millisecond: " << points.size() / (avg_time * 1000) << endl;
 }
+
 
 // 3. ikdtree增量式构建树的性能测试
 void benchmark_tree_construction_incremental_ikd(const std::vector<std::vector<PointXYZ>>& frames, const std::string& method_name) {
@@ -285,7 +290,7 @@ int main() {
         for (const auto& frame : frames) {
             merged_points.insert(merged_points.end(), frame.begin(), frame.end());
         }
-        
+
         cout << "Generated " << N << " frames with " << merged_points.size() << " total points" << endl;
 
         PointXYZ query_point;
@@ -298,20 +303,20 @@ int main() {
         benchmark_tree_construction_rebuild_nanoflann(merged_points, "nanoflann");
         
         // 2. ikdtree重新构建树的测试
-        // benchmark_tree_construction_rebuild_ikd<PointXYZ>(merged_points, "ikdtree");
+        benchmark_tree_construction_rebuild_ikdtree(merged_points, "ikdtree");
 
         cout << "\n--- 2. TREE CONSTRUCTION COMPARISON (INCREMENTAL MODE) ---" << endl;
         cout << "Testing incremental construction using " << N << " consecutive frames" << endl;
         
         // 3. ikdtree增量式构建测试
-        benchmark_tree_construction_incremental_ikd(frames, "ikdtree_incremental");
+        // benchmark_tree_construction_incremental_ikd(frames, "ikdtree_incremental");
         
         cout << "\n--- 3. SEARCH PERFORMANCE COMPARISON ---" << endl;
         cout << "Testing KNN and RadiusNN search with different parameters" << endl;
         
         // 4. 搜索性能对比测试
         benchmark_search_performance_nanoflann(merged_points, query_point, "nanoflann");
-        benchmark_search_performance_ikd(merged_points, query_point, "ikdtree");
+        // benchmark_search_performance_ikd(merged_points, query_point, "ikdtree");
     }
     
     cout << "\n" << string(60, '=') << endl;

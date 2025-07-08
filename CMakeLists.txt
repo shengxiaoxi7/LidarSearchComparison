@@ -7,46 +7,57 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_compile_options(-Wall -Wextra -O3)
 
-# 添加头文件路径
+# 包含头文件路径
 include_directories(
-  ${PROJECT_SOURCE_DIR}/libs/nanoflann
-  ${PROJECT_SOURCE_DIR}/libs/ikdtree
+  ${PROJECT_SOURCE_DIR}/include/ikdtree   # ikdtree 库头文件路径
+  ${PROJECT_SOURCE_DIR}/include/nanoflann  # nanoflann 库头文件路径
 )
 
-# 构建简单版本
-add_executable(LidarSearchComparison_simple
-  src/main_simple.cpp
-)
-target_link_libraries(LidarSearchComparison_simple pthread)
+# 查找 PCL 包
+find_package(PCL REQUIRED)
 
-# 查找 ROS 和 PCL 包
+# 查找 ROS 包
 find_package(catkin REQUIRED COMPONENTS
   roscpp
+  rospy
   sensor_msgs
   pcl_ros
-  pcl_conversions
   rosbag
 )
 
-find_package(PCL REQUIRED)
-
-# 如果 ROS 和 PCL 环境存在，构建完整版本
+# 添加头文件路径
 include_directories(
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
 )
 
-add_executable(LidarSearchComparison
+# 编译 kdtree_comparison
+# add_executable(kdtree_comparison
+#   src/kdtree_comparison.cpp
+#   libs/ikdtree/ikd_tree.cpp   # 确保这里包含了 ikd_tree.cpp
+# )
+# target_link_libraries(kdtree_comparison
+#   ${PCL_LIBRARIES}     # 链接 PCL 库
+#   pthread              # 链接 pthread
+#   ${catkin_LIBRARIES}  # 链接 ROS 包
+# )
+
+# 编译 main
+add_executable(main
   src/main.cpp
-  libs/ikdtree/ikd_tree.cpp
+  include/ikdtree/ikd_tree.cpp   # 确保这里包含了 ikd_tree.cpp
+)
+target_link_libraries(main
+  ${PCL_LIBRARIES}     # 链接 PCL 库
+  pthread              # 链接 pthread
+  ${catkin_LIBRARIES}  # 链接 ROS 包
 )
 
-target_compile_definitions(LidarSearchComparison PRIVATE
-  ${PCL_DEFINITIONS}
+# 编译简单版本
+add_executable(LidarSearchComparison_simple
+  src/main_simple.cpp
+  include/ikdtree/ikd_tree.cpp
 )
-
-target_link_libraries(LidarSearchComparison
-  ${catkin_LIBRARIES}
-  ${PCL_LIBRARIES}
-  pthread
+target_link_libraries(LidarSearchComparison_simple
+  pthread              # 链接 pthread
 )
