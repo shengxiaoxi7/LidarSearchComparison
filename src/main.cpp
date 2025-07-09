@@ -227,37 +227,68 @@ void search_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>
 
 }
 
+// void incremental_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>& frames, int N) {
+
+//     KD_TREE<PointType>::Ptr kdtree_ptr(new KD_TREE<PointType>(0.3, 0.6, 0.2));
+//     KD_TREE<PointType> &ikd_Tree = *kdtree_ptr;
+
+//     pcl::PointCloud<PointType>::Ptr cloud(new pcl::PointCloud<PointType>());
+//     for (int i = N_; i < N_ + N; i++) {
+//         *cloud += *frames[i].second;
+//     }
+//     std::cout << "Total points in " << N << " frames: " << cloud->points.size() << std::endl;
+
+//     ikd_Tree.Build(cloud->points);
+
+//     pcl::PointCloud<PointType>::Ptr add_cloud = frames[N].second; // 获取第 N+1 帧点云
+//     pcl::PointCloud<PointType>::Ptr delete_cloud = frames[0].second;
+
+//     auto delete_start = std::chrono::high_resolution_clock::now();
+//     ikd_Tree.Delete_Points(delete_cloud->points);  // 删除第 0 帧点云
+//     auto delete_end = std::chrono::high_resolution_clock::now();
+//     auto delete_duration = std::chrono::duration_cast<std::chrono::microseconds>(delete_end - delete_start).count();
+//     std::cout << "Deleting " << delete_cloud->points.size() << " points took: " << delete_duration << " µs" << std::endl;
+
+//     auto add_start = std::chrono::high_resolution_clock::now();
+//     ikd_Tree.Add_Points(add_cloud->points, false);  // 增量添加点云
+//     auto add_end = std::chrono::high_resolution_clock::now();
+//     auto add_duration = std::chrono::duration_cast<std::chrono::microseconds>(add_end - add_start).count();
+//     std::cout << "Adding " << add_cloud->points.size() << " points took: " << add_duration << " µs" << std::endl;
+//     std::cout << "Total time : " << (add_duration + delete_duration) << " µs" << std::endl;
+
+// }
+
 void incremental_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::Ptr>>& frames, int N) {
 
-    KD_TREE<PointType>::Ptr kdtree_ptr(new KD_TREE<PointType>(0.3, 0.6, 0.2));
-    KD_TREE<PointType> &ikd_Tree = *kdtree_ptr;
-
     pcl::PointCloud<PointType>::Ptr cloud(new pcl::PointCloud<PointType>());
-    for (int i = N_; i < N_ + N; i++) {
+    for (int i = N_ - 1; i < N_ + N - 1; i++) {
         *cloud += *frames[i].second;
     }
     std::cout << "Total points in " << N << " frames: " << cloud->points.size() << std::endl;
 
-    ikd_Tree.Build(cloud->points);
+    const int rounds = 100;
+    long long total_Inc_build_time = 0;
 
-    pcl::PointCloud<PointType>::Ptr add_cloud = frames[N].second; // 获取第 N+1 帧点云
-    pcl::PointCloud<PointType>::Ptr delete_cloud = frames[0].second;
+    for (int r = 0; r < rounds; ++r) {
 
-    auto delete_start = std::chrono::high_resolution_clock::now();
-    ikd_Tree.Delete_Points(delete_cloud->points);  // 删除第 0 帧点云
-    auto delete_end = std::chrono::high_resolution_clock::now();
-    auto delete_duration = std::chrono::duration_cast<std::chrono::microseconds>(delete_end - delete_start).count();
-    std::cout << "Deleting " << delete_cloud->points.size() << " points took: " << delete_duration << " µs" << std::endl;
+        KD_TREE<PointType>::Ptr kdtree_ptr(new KD_TREE<PointType>(0.3, 0.6, 0.2));
+        KD_TREE<PointType> &ikd_Tree = *kdtree_ptr;
+        ikd_Tree.Build(cloud->points);
 
-    auto add_start = std::chrono::high_resolution_clock::now();
-    ikd_Tree.Add_Points(add_cloud->points, false);  // 增量添加点云
-    auto add_end = std::chrono::high_resolution_clock::now();
-    auto add_duration = std::chrono::duration_cast<std::chrono::microseconds>(add_end - add_start).count();
-    std::cout << "Adding " << add_cloud->points.size() << " points took: " << add_duration << " µs" << std::endl;
-    std::cout << "Total time : " << (add_duration + delete_duration) << " µs" << std::endl;
+        pcl::PointCloud<PointType>::Ptr add_cloud = frames[N].second; // 获取第 N+1 帧点云
+        pcl::PointCloud<PointType>::Ptr delete_cloud = frames[0].second;
 
+        auto start = std::chrono::high_resolution_clock::now();
+        ikd_Tree.Delete_Points(delete_cloud->points);
+        ikd_Tree.Add_Points(add_cloud->points, false);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        total_Inc_build_time += duration;
+
+    }
+    std::cout << "Average incremental build time for " << N << " frames over " << rounds << " runs: " 
+              << total_Inc_build_time / double(rounds) << " µs" << std::endl;
 }
-
 
 int main(int argc, char** argv) {
     ros::init(argc, argv, "LidarSearchComparison");
