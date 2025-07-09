@@ -256,7 +256,6 @@ void incremental_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::
     std::cout << "Adding " << add_cloud->points.size() << " points took: " << add_duration << " µs" << std::endl;
     std::cout << "Total time : " << (add_duration + delete_duration) << " µs" << std::endl;
 
-    std::cout << "Number of valid points after adding: " << ikd_Tree.validnum() << std::endl;
 }
 
 

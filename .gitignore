@@ -1,6 +1,7 @@
 # 编译输出
 /build/
 /data/
+/.vscode/
 
 # CMake文件
 CMakeCache.txt
