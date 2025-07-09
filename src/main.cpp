@@ -238,12 +238,7 @@ void incremental_ikdtree(std::vector<std::pair<int, pcl::PointCloud<PointType>::
     }
     std::cout << "Total points in " << N << " frames: " << cloud->points.size() << std::endl;
 
-    auto start = std::chrono::high_resolution_clock::now();
     ikd_Tree.Build(cloud->points);
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "Rebuilding ikd-tree for " << N << " frames took: " << duration << " µs" << std::endl;
-    std::cout << "Number of valid points: " << ikd_Tree.validnum() << std::endl;
 
     pcl::PointCloud<PointType>::Ptr add_cloud = frames[N].second; // 获取第 N+1 帧点云
     pcl::PointCloud<PointType>::Ptr delete_cloud = frames[0].second;
